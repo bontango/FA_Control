@@ -1,7 +1,9 @@
 CONFIG_IDF_TARGET="esp32c3"
 
-# Partition table: single factory app, larger to fit WiFi + HTTPD comfortably
-CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+# Partition table: two OTA partitions (1.5 MB each) for web-based firmware updates
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 
 # Logging
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y

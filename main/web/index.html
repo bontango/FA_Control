@@ -206,6 +206,17 @@ legend{font-size:.72rem;color:var(--amber);padding:0 .5rem;letter-spacing:.2em}
       <button class="btn warn" id="doreset">INIT/RESET (0x64)</button>
     </div>
   </fieldset>
+  <fieldset><legend>FIRMWARE</legend>
+    <div class="row" style="margin-top:0">
+      <span class="hint" id="fwver" style="margin:0">VERSION: –</span>
+    </div>
+    <div class="row">
+      <button class="btn" id="fwfetch">VERSIONEN LADEN</button>
+      <select id="fwsel" style="display:none"></select>
+      <button class="btn warn" id="fwgo" style="display:none">UPDATE INSTALLIEREN</button>
+    </div>
+    <div class="row"><span class="hint" id="fwstat" style="margin:0"></span></div>
+  </fieldset>
   <fieldset><legend>WLAN</legend>
     <div class="cfg">
       <div><label>SSID</label><input id="w_ssid" maxlength="32"></div>
@@ -331,14 +342,49 @@ $("#savewifi").onclick=function(){
   api("/api/wifi?ssid="+encodeURIComponent(s)+"&pass="+encodeURIComponent($("#w_pass").value),
     function(){toast("GESPEICHERT — NEUSTART …")})};
 
+/* ---- Firmware-Update (OTA von lisy.dev) ---- */
+$("#fwfetch").onclick=function(){
+  $("#fwstat").textContent="LADE LISTE VON LISY.DEV …";
+  fetch("/api/fwlist").then(function(r){
+    if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+    return r.json()}).then(function(j){
+    var sel=$("#fwsel");sel.innerHTML="";
+    if(!j.files.length){$("#fwstat").textContent="KEINE DATEIEN GEFUNDEN";return}
+    j.files.forEach(function(f){
+      var o=document.createElement("option");o.value=f;o.textContent=f;
+      sel.appendChild(o)});
+    sel.style.display="inline-block";$("#fwgo").style.display="inline-block";
+    $("#fwstat").textContent=j.files.length+" VERSION(EN) VERFÜGBAR"
+  }).catch(function(e){$("#fwstat").textContent="FEHLER: "+e.message})};
+$("#fwgo").onclick=function(){
+  var f=$("#fwsel").value;if(!f)return;
+  if(!confirm("Firmware "+f+" installieren?"))return;
+  api("/api/fwupdate?file="+encodeURIComponent(f),function(){
+    $("#fwgo").disabled=true;fwPoll()})};
+function fwPoll(){
+  getj("/api/fwstatus",function(s){
+    if(s.state==="running"){
+      $("#fwstat").textContent="UPDATE LÄUFT … "+s.pct+" %";
+      setTimeout(fwPoll,1000)}
+    else if(s.state==="ok"){
+      $("#fwstat").textContent="ERFOLGREICH — NEUSTART, SEITE LÄDT GLEICH NEU …";
+      setTimeout(function(){location.reload()},10000)}
+    else if(s.state==="error"){
+      $("#fwstat").textContent="FEHLGESCHLAGEN: "+s.msg;
+      $("#fwgo").disabled=false}
+    else setTimeout(fwPoll,1000)})}
+
 /* ---- Start ---- */
 function init(){
   getj("/api/config",function(c){cfg=c;build();poll()});
   getj("/api/status",function(s){
-    $("#status").innerHTML="MODUS <b>"+s.mode.toUpperCase()+"</b> · IP <b>"+s.ip+
-      "</b> · WD <b>"+(s.wd?"EIN":"AUS")+"</b>";
+    $("#status").innerHTML="V<b>"+s.ver+"</b> · MODUS <b>"+s.mode.toUpperCase()+
+      "</b> · IP <b>"+s.ip+"</b> · WD <b>"+(s.wd?"EIN":"AUS")+"</b>";
+    $("#fwver").textContent="INSTALLIERTE VERSION: "+s.ver;
     if(s.mode==="ap"){var w=$("#apwarn");w.style.display="block";
-      w.onclick=function(){show("config")}}})}
+      w.onclick=function(){show("config")};
+      $("#fwfetch").disabled=true;
+      $("#fwstat").textContent="IM AP-MODUS NICHT VERFÜGBAR (KEIN INTERNET)"}})}
 init();
 </script>
 </body>

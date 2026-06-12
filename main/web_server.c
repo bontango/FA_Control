@@ -9,6 +9,8 @@
 #include "esp_timer.h"
 
 #include "app_config.h"
+#include "esp_app_desc.h"
+#include "fw_update.h"
 #include "lisy.h"
 #include "wifi_mgr.h"
 
@@ -268,11 +270,66 @@ static esp_err_t status_get_handler(httpd_req_t *req)
 {
     char ip[16];
     wifi_mgr_get_ip(ip, sizeof(ip));
-    char buf[128];
+    char buf[160];
     snprintf(buf, sizeof(buf),
-             "{\"mode\":\"%s\",\"ip\":\"%s\",\"wd\":%d,\"wd_last\":%d}",
+             "{\"mode\":\"%s\",\"ip\":\"%s\",\"wd\":%d,\"wd_last\":%d,\"ver\":\"%s\"}",
              wifi_mgr_get_mode() == WIFI_MGR_MODE_AP ? "ap" : "sta",
-             ip, lisy_watchdog_enabled() ? 1 : 0, lisy_watchdog_last_result());
+             ip, lisy_watchdog_enabled() ? 1 : 0, lisy_watchdog_last_result(),
+             esp_app_get_description()->version);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, buf);
+}
+
+/* ---- API: Firmware-Update (OTA von lisy.dev) ------------------------------ */
+
+static esp_err_t fwlist_get_handler(httpd_req_t *req)
+{
+    if (wifi_mgr_get_mode() == WIFI_MGR_MODE_AP) {
+        return send_err(req, "Kein Internet im AP-Modus");
+    }
+    char *buf = malloc(1536);
+    if (!buf) {
+        return send_err(req, "Kein Speicher");
+    }
+    esp_err_t err = fw_update_list_json(buf, 1536);
+    if (err != ESP_OK) {
+        free(buf);
+        return send_err(req, "Server nicht erreichbar");
+    }
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t ret = httpd_resp_sendstr(req, buf);
+    free(buf);
+    return ret;
+}
+
+static esp_err_t fwupdate_post_handler(httpd_req_t *req)
+{
+    if (wifi_mgr_get_mode() == WIFI_MGR_MODE_AP) {
+        return send_err(req, "Kein Internet im AP-Modus");
+    }
+    char file[64];
+    if (!get_param(req, "file", file, sizeof(file))) {
+        return send_err(req, "Parameter file fehlt");
+    }
+    esp_err_t err = fw_update_start(file);
+    if (err == ESP_ERR_INVALID_STATE) {
+        return send_err(req, "Update laeuft bereits");
+    }
+    if (err != ESP_OK) {
+        return send_err(req, "Ungueltiger Dateiname");
+    }
+    return send_ok(req);
+}
+
+static esp_err_t fwstatus_get_handler(httpd_req_t *req)
+{
+    static const char *names[] = { "idle", "running", "ok", "error" };
+    int pct;
+    const char *msg;
+    fw_state_t st = fw_update_state(&pct, &msg);
+    char buf[128];
+    snprintf(buf, sizeof(buf), "{\"state\":\"%s\",\"pct\":%d,\"msg\":\"%s\"}",
+             names[st], pct, msg);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
 }
@@ -315,8 +372,10 @@ esp_err_t web_server_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.uri_match_fn = httpd_uri_match_wildcard;
-    cfg.max_uri_handlers = 12;
+    cfg.max_uri_handlers = 16;
     cfg.lru_purge_enable = true;
+    /* TLS-Client (fwlist via mbedTLS) laeuft im httpd-Task -> mehr Stack noetig */
+    cfg.stack_size = 10240;
 
     httpd_handle_t server = NULL;
     esp_err_t err = httpd_start(&server, &cfg);
@@ -335,6 +394,9 @@ esp_err_t web_server_start(void)
         { .uri = "/api/reset",   .method = HTTP_POST, .handler = reset_post_handler },
         { .uri = "/api/status",  .method = HTTP_GET,  .handler = status_get_handler },
         { .uri = "/api/wifi",    .method = HTTP_POST, .handler = wifi_post_handler },
+        { .uri = "/api/fwlist",  .method = HTTP_GET,  .handler = fwlist_get_handler },
+        { .uri = "/api/fwupdate",.method = HTTP_POST, .handler = fwupdate_post_handler },
+        { .uri = "/api/fwstatus",.method = HTTP_GET,  .handler = fwstatus_get_handler },
         { .uri = "/*",           .method = HTTP_GET,  .handler = root_get_handler },
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {

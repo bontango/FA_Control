@@ -1,3 +1,15 @@
+unter C:\Users\bonta\ESP32_source\LISYclock\main findest Du ein Projekt
+welches es erlaubt den ESP32 über die Weboberfläche upzudaten.
+( im wesentlichen fupdate.c ) Kannst Du eine ähnliche Funktionalität
+für FA_Control zur Verfügung stellen?
+Wobei die Auswahl der '.bin' datei über den lisy.dev Server ausreicht,
+es muss kein upload lokaler Dateien zur Verfügung stehen.
+
+
+
+
+
+
 an com port 6 ist ein ESP32-C3 angeschlossen. 
 Erzeuge dafür ein VS-Code ESP-IDF Programm in 'C' 'FA_Control' im aktuellen Netzwerkordner ('N:\Projekte\FA_Control')
 Das Programm soll eine Seite auf einem Webserver zur Verfügung stellen mit dem über das 'LISY Protokoll'

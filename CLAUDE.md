@@ -26,6 +26,9 @@ idf.py -B C:\Users\bonta\esp\build\fa -p COM6 flash
   „FA-Control" + Mini-DNS (Captive Portal) auf 192.168.4.1; mDNS `fa-control.local`
 - `web_server.c` — REST-API nur über Query-Parameter (kein JSON-Parsing);
   JSON-Antworten per snprintf
+- `fw_update.c` — OTA-Update von `https://lisy.dev/swrep/misc/FA_Control/bin/`
+  (esp_https_ota + Cert-Bundle); Listing = Apache-Index, per `href="*.bin"` gescannt;
+  zwei OTA-Partitionen à 1,5 MB (`partitions.csv`, Flash 4 MB); Version aus `version.txt`
 - `web/index.html` — Single-Page-Frontend (Vanilla JS, Retro-CRT-Stil); wird beim Build
   durch `web/gzip_file.py` gegzippt und per `target_add_binary_data` eingebettet
 

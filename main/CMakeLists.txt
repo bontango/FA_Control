@@ -1,7 +1,8 @@
 idf_component_register(
-    SRCS "main.c" "app_config.c" "lisy.c" "wifi_mgr.c" "web_server.c"
+    SRCS "main.c" "app_config.c" "lisy.c" "wifi_mgr.c" "web_server.c" "fw_update.c"
     INCLUDE_DIRS "."
     PRIV_REQUIRES esp_http_server esp_wifi nvs_flash esp_netif esp_timer esp_driver_uart esp_driver_gpio lwip
+                  esp_https_ota esp_http_client app_update esp_app_format mbedtls
 )
 
 # Gzip the web page at build time and embed it into the binary

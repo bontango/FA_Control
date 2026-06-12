@@ -41,6 +41,26 @@ Zusätzlich:
 4. Danach ist die Seite im Heimnetz erreichbar: **`http://fa-control.local`** (mDNS) oder per IP
    (steht im Boot-Log und im Seitenkopf).
 
+## Firmware-Update über lisy.dev (OTA)
+
+Unter **KONFIG → FIRMWARE** kann eine neue Firmware direkt vom Server installiert werden:
+
+1. **VERSIONEN LADEN** — der ESP32 holt das Verzeichnislisting von
+   `https://lisy.dev/swrep/misc/FA_Control/bin/` und zeigt alle `.bin`-Dateien an
+   (Namenskonvention: `FA_Control_vX.Y.bin`).
+2. Version auswählen → **UPDATE INSTALLIEREN** — der ESP32 lädt die Datei selbst per
+   HTTPS herunter, schreibt sie in die inaktive OTA-Partition, validiert das Image und
+   startet neu. Fortschritt wird live angezeigt.
+
+Voraussetzungen: Gerät im STA-Modus (im AP-Modus kein Internet); zwei OTA-Partitionen
+à 1,5 MB (`partitions.csv`, Flash 4 MB). Die laufende Versionsnummer stammt aus
+`version.txt` (PROJECT_VER) und wird im Seitenkopf angezeigt.
+
+**Hinweis:** Die Umstellung von Single-App auf OTA-Partitionen erforderte ein einmaliges
+komplettes Neuflashen über USB; WLAN-Credentials und Konfiguration im NVS blieben erhalten.
+Neue Releases hochladen: `.bin` aus dem Build (`FA_Control.bin`) als `FA_Control_vX.Y.bin`
+nach `lisy.dev/swrep/misc/FA_Control/bin/` kopieren und `version.txt` entsprechend pflegen.
+
 ## Bauen & Flashen
 
 **Wichtig:** `N:` ist ein Netzlaufwerk (UNC-Pfad `\\synnew\th\...`). Der Build muss in ein
@@ -64,6 +84,7 @@ main/
 ├── lisy.c/h        # UART1-Treiber + LISY-Protokollschicht (Mutex-geschützt)
 ├── wifi_mgr.c/h    # STA mit NVS-Credentials, Fallback AP + Captive Portal + mDNS
 ├── web_server.c/h  # esp_http_server: REST-API + eingebettete Webseite
+├── fw_update.c/h   # OTA-Update von lisy.dev (esp_https_ota, Verzeichnislisting)
 └── web/index.html  # Single-Page-Frontend (wird beim Build gegzippt eingebettet)
 ```
 
@@ -81,4 +102,7 @@ main/
 | `GET /api/state` | Lampen-/Schalter-Bitmaps (hex) + Displaytexte |
 | `POST /api/reset` | LISY Init/Reset (0x64) |
 | `POST /api/wifi?ssid=&pass=` | WLAN-Credentials speichern + Neustart |
-| `GET /api/status` | Modus (ap/sta), IP, Watchdog-Status |
+| `GET /api/status` | Modus (ap/sta), IP, Watchdog-Status, Firmware-Version |
+| `GET /api/fwlist` | .bin-Dateien auf lisy.dev als JSON |
+| `POST /api/fwupdate?file=FA_Control_v1.01.bin` | OTA-Update starten |
+| `GET /api/fwstatus` | Update-Fortschritt (`idle/running/ok/error`, Prozent) |
