@@ -2,6 +2,7 @@
 #include "nvs_flash.h"
 
 #include "app_config.h"
+#include "board.h"
 #include "lisy.h"
 #include "web_server.h"
 #include "wifi_mgr.h"
@@ -18,6 +19,7 @@ void app_main(void)
     ESP_ERROR_CHECK(err);
 
     app_config_load();
+    board_init();
     ESP_ERROR_CHECK(lisy_init());
     lisy_watchdog_enable(g_cfg.watchdog_en);
     lisy_coil_apply_pulse_time(g_cfg.coils, g_cfg.coil_pulse_ms);

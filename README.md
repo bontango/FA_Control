@@ -13,6 +13,24 @@ LISY-kompatibles Programm läuft.
 | UART zum Flipper | UART1: **TX = GPIO6**, **RX = GPIO7**, 115200 Baud, 8N1 |
 | Framework | ESP-IDF **v5.5.1** (`C:\Users\bonta\esp\v5.5.1\esp-idf`) |
 
+### GPIO-Belegung
+
+Zentrale Pin-Zuordnung in [`main/board_pins.h`](main/board_pins.h). Für künftige
+Erweiterungen sind folgende Pins reserviert (`board_init()` konfiguriert sie):
+
+| Signal | GPIO | Richtung / Pull | Bemerkung |
+|---|---|---|---|
+| LISY UART1 TX | 6 | Ausgang | — |
+| LISY UART1 RX | 7 | Eingang | — |
+| Status → Flipper | 10 | Ausgang, **externer** Pull-Up | active-low (Ruhe = high) |
+| I2C SDA | 5 | Open-Drain, externer Pull-Up | nur reserviert |
+| I2C SCL | 8 | Open-Drain, externer Pull-Up | Strapping; ext. Pull-Up hält high → boot-sicher; nur reserviert |
+| Taster | 9 | Eingang, **interner** Pull-Up | BOOT-Pin; während Reset gedrückt → Download-Modus |
+| DIP 1–4 | 0, 1, 3, 4 | Eingänge, interner Pull-Up | ON = GND |
+| Reserve | 2 | — | freigehalten (Strapping) |
+
+Nicht verfügbar: GPIO11–17 (SPI-Flash), GPIO18/19 (USB-Serial/JTAG), GPIO20/21 (UART0-Konsole).
+
 ## Funktionen
 
 | Kategorie | Default | Maximum (Protokoll) | LISY-Befehle |
@@ -58,8 +76,21 @@ Voraussetzungen: Gerät im STA-Modus (im AP-Modus kein Internet); zwei OTA-Parti
 
 **Hinweis:** Die Umstellung von Single-App auf OTA-Partitionen erforderte ein einmaliges
 komplettes Neuflashen über USB; WLAN-Credentials und Konfiguration im NVS blieben erhalten.
-Neue Releases hochladen: `.bin` aus dem Build (`FA_Control.bin`) als `FA_Control_vX.Y.bin`
-nach `lisy.dev/swrep/misc/FA_Control/bin/` kopieren und `version.txt` entsprechend pflegen.
+
+### Release bauen & hochladen (`build_and_deploy.ps1`)
+
+Neue Releases werden per Script erzeugt und hochgeladen:
+
+```powershell
+.\build_and_deploy.ps1
+```
+
+Das Script baut die Firmware (lokales Build-Verzeichnis, siehe unten), kopiert das Binary
+als `FA_Control_v<version>.bin` nach `releases\` (Version aus `version.txt`) und lädt es
+per SFTP (WinSCP) nach `lisy.dev/swrep/misc/FA_Control/bin/` hoch. Zugangsdaten kommen
+aus einer `.env`-Datei (Vorlage: `.env.example`), das Passwort wird interaktiv abgefragt —
+Enter ohne Passwort überspringt den Upload (nur lokale Kopie). Vor einem Release
+`version.txt` hochzählen.
 
 ## Bauen & Flashen
 
@@ -79,7 +110,9 @@ Port COM6, Target esp32c3, lokales Build-Verzeichnis (`idf.buildPathWin`).
 
 ```
 main/
-├── main.c          # app_main: NVS → Konfig → LISY → WLAN → Webserver
+├── main.c          # app_main: NVS → Konfig → Board → LISY → WLAN → Webserver
+├── board.c/h       # GPIO-Reservierung (Status, Taster, DIP-Bank, I2C-Pins)
+├── board_pins.h    # zentrale Pin-Zuordnung (single source of truth)
 ├── app_config.c/h  # Konfiguration (Anzahlen, Pulszeit, Watchdog) im NVS
 ├── lisy.c/h        # UART1-Treiber + LISY-Protokollschicht (Mutex-geschützt)
 ├── wifi_mgr.c/h    # STA mit NVS-Credentials, Fallback AP + Captive Portal + mDNS

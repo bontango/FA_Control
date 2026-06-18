@@ -7,11 +7,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+#include "board_pins.h"
+
 static const char *TAG = "lisy";
 
 #define LISY_UART       UART_NUM_1
-#define LISY_TX_GPIO    6
-#define LISY_RX_GPIO    7
+#define LISY_TX_GPIO    BOARD_PIN_LISY_TX
+#define LISY_RX_GPIO    BOARD_PIN_LISY_RX
 #define LISY_BAUD       115200
 #define LISY_RX_BUF     256
 #define RESP_TIMEOUT_MS 100

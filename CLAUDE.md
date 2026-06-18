@@ -17,8 +17,19 @@ idf.py -B C:\Users\bonta\esp\build\fa -p COM6 flash
 - ESP-IDF v5.5.1: `C:\Users\bonta\esp\v5.5.1\esp-idf`
 - Board: ESP32-C3 an COM6 (USB-Serial/JTAG, Boot-Log mit 115200 Baud lesbar)
 
+## Release & Deploy
+
+`.\build_and_deploy.ps1` — baut (lokales Build-Verzeichnis), kopiert das Binary als
+`FA_Control_v<version>.bin` nach `releases\` (Version aus `version.txt` = PROJECT_VER)
+und lädt es per SFTP/WinSCP auf den lisy.dev-Server (`.env` mit Zugangsdaten nötig,
+Vorlage `.env.example`; Enter statt Passwort = nur lokal kopieren). Vor einem Release
+`version.txt` hochzählen.
+
 ## Architektur (alles unter `main/`)
 
+- `board_pins.h` — zentrale GPIO-Zuordnung (single source of truth); `board.c` reserviert/
+  konfiguriert Status-Ausgang (GPIO10), Taster (GPIO9), 4er-DIP-Bank (GPIO0/1/3/4) und
+  reserviert I2C-Pins (SDA=GPIO5, SCL=GPIO8). ESP32-C3-Strapping (GPIO2/8/9) beachten.
 - `lisy.c` — LISY-Befehle über UART1; jeder Zugriff Mutex-geschützt; Watchdog (0x65)
   per esp_timer alle 500 ms; Lampen-/Schalter-Zustand als Bitmaps gespiegelt
 - `app_config.c` — Konfiguration als NVS-Blob (Namespace `facfg`)
