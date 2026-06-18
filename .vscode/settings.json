@@ -9,5 +9,6 @@
     "idf.flashType": "UART",
     "files.associations": {
         "*.h": "c"
-    }
+    },
+    "idf.currentSetup": "C:\\Users\\bonta\\esp\\v5.5.1\\esp-idf"
 }
