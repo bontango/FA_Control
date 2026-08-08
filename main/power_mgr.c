@@ -3,12 +3,12 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
-#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "board.h"
 #include "fa_connect.h"
+#include "wifi_mgr.h"
 
 static const char *TAG = "power";
 
@@ -81,12 +81,13 @@ static void enter_deep_sleep(void)
      * erst nach ihrem eigenen Watchdog-Timeout (~2 s) wieder -- der Flipper stuende
      * so lange. Nimmt zugleich GPIO10 zurueck und stoppt den Watchdog. */
     fa_connect_release();
-
-    /* ESP-IDF verlangt, dass WLAN vor dem Tiefschlaf gestoppt wird. Im Boot-Gate
-     * laeuft es noch gar nicht -- der Fehlercode ist dann erwartbar und egal. */
-    esp_wifi_stop();
-
     led(false);
+
+    /* WLAN geordnet herunterfahren. wifi_mgr_stop() meldet dafuer erst die
+     * Event-Handler ab -- ohne das blieb esp_wifi_stop() haengen und das Geraet
+     * lief einfach weiter, statt schlafen zu gehen. Im Boot-Gate laeuft WLAN noch
+     * gar nicht; der Fall ist dort abgefangen. */
+    wifi_mgr_stop();
 
     /* Beide Ausgaenge ueber den Tiefschlaf festhalten. Ohne Halt wuerden sie
      * floaten; GPIO10 haenge dann allein am Weak-Pull-Up des FPGA, und GPIO8

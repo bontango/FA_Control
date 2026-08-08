@@ -27,6 +27,7 @@ static EventGroupHandle_t s_events;
 static wifi_mgr_mode_t s_mode = WIFI_MGR_MODE_AP;
 static char s_ip[16] = AP_IP_STR;
 static int s_retries;
+static bool s_stopping;   /* siehe wifi_mgr_stop() */
 
 /* ---- Mini-DNS-Server: beantwortet alle Anfragen mit 192.168.4.1 --------- */
 
@@ -73,6 +74,12 @@ static void dns_task(void *arg)
 static void wifi_event_handler(void *arg, esp_event_base_t base,
                                int32_t id, void *data)
 {
+    /* Waehrend des Herunterfahrens nichts mehr anfassen: esp_wifi_stop() loest
+     * STA_DISCONNECTED aus, und ein esp_wifi_connect() von hier aus griffe mitten
+     * in den laufenden Stopp hinein. */
+    if (s_stopping) {
+        return;
+    }
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
@@ -192,6 +199,28 @@ void wifi_mgr_start(void)
     }
 
     start_ap();
+}
+
+void wifi_mgr_stop(void)
+{
+    /* Reihenfolge ist der ganze Punkt dieser Funktion.
+     *
+     * esp_wifi_stop() erzeugt WIFI_EVENT_STA_DISCONNECTED. Der Handler oben hat
+     * darauf frueher mit esp_wifi_connect() geantwortet -- also mit einem
+     * WLAN-Aufruf mitten in den Stopp hinein. esp_wifi_stop() kam dann nicht mehr
+     * zurueck, und der aufrufende Task blieb stehen: das Geraet ging beim Umlegen
+     * von DIP1 nicht schlafen, sondern lief einfach weiter (v1.12).
+     *
+     * Erst das Flag (schliesst das Rennen mit einem schon laufenden Handler),
+     * dann abmelden, dann stoppen. */
+    s_stopping = true;
+    esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler);
+    esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler);
+
+    esp_err_t err = esp_wifi_stop();
+    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT) {
+        ESP_LOGW(TAG, "esp_wifi_stop(): %s", esp_err_to_name(err));
+    }
 }
 
 wifi_mgr_mode_t wifi_mgr_get_mode(void)
