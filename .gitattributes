@@ -1,0 +1,22 @@
+# Zeilenenden: im Repository ausnahmslos LF.
+#
+# Ohne diese Regel schreiben Editoren und Skripte auf Windows beim Speichern CRLF,
+# und eine Datei, in der drei Zeilen geaendert wurden, landet als Ganzdatei-Diff im
+# Commit. Beim FA-Control-Umbau ist das reihenweise passiert und musste jedes Mal
+# von Hand zurueckgestellt werden.
+#
+# `text=auto eol=lf` normalisiert beim Einchecken: die Arbeitskopie darf CRLF
+# haben, im Repository kommt LF an, `git status` bleibt sauber.
+#
+# Beim Anlegen (08.2026) hat das NICHTS renormalisiert - alle getrackten Dateien
+# lagen bereits als LF vor. Die Regel ist reine Vorsorge.
+* text=auto eol=lf
+
+# Binaerdateien: nie diffen, nie konvertieren.
+*.bin binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.zip binary
+*.gz binary
