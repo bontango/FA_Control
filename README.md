@@ -139,6 +139,35 @@ idf.py -B C:\Users\bonta\esp\build\fa -p COM7 flash monitor
 Die VS-Code-Extension (ESP-IDF) ist über `.vscode/settings.json` bereits konfiguriert:
 Port COM7, Target esp32c3, lokales Build-Verzeichnis (`idf.buildPathWin`).
 
+### Welcher Python — `IDF_PYTHON_ENV_PATH`
+
+Maßgeblich ist der **von ESP-IDF mitgelieferte Python 3.11.2**
+(`.espressif\tools\idf-python\3.11.2`), venv `idf5.5_py3.11_env`. Damit das überall gilt, ist
+
+```
+IDF_PYTHON_ENV_PATH = C:\Users\bonta\.espressif\python_env\idf5.5_py3.11_env
+```
+
+als **Windows-Benutzervariable** gesetzt. Ohne sie wählt ESP-IDF die Umgebung nach der Version
+des Interpreters, den `export.ps1` gerade aufruft — und das ist das erste `python` im PATH, hier
+der Microsoft-Store-Alias auf 3.14. Dann entsteht ein zweites venv, und sobald ein
+Build-Verzeichnis mit dem einen und die Shell mit dem anderen läuft, bricht CMake ab mit
+*„… is currently active in the environment while the project was configured with …"*.
+
+In einer Shell ohne die Benutzervariable (fremder Rechner, frisch aufgesetzt):
+
+```powershell
+$env:IDF_PYTHON_ENV_PATH = "$env:USERPROFILE\.espressif\python_env\idf5.5_py3.11_env"
+. C:\Users\bonta\esp\v5.5.1\esp-idf\export.ps1
+```
+
+Prüfen lässt es sich nach dem `export.ps1` mit `python -c "import sys; print(sys.version)"` —
+muss **3.11.2** sagen.
+
+**Beim Umstieg auf eine neuere ESP-IDF-Version** muss die Variable mit: der Pfad enthält `5.5`.
+Das fällt aber auf, weil `idf_tools.py` das venv gegen die IDF-Version prüft und im Klartext
+meldet, dass es für eine andere Version erzeugt wurde.
+
 ## Projektstruktur
 
 ```

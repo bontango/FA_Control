@@ -89,12 +89,30 @@ if ([string]::IsNullOrEmpty($SFTP_PASS)) {
 }
 
 # -- ESP-IDF Umgebung ---------------------------------------------------------
+# Welche Python-Umgebung ESP-IDF benutzt, entscheidet IDF_PYTHON_ENV_PATH. Ohne die
+# Variable bildet idf_tools.py den venv-Namen aus der Version des Interpreters, den
+# export.ps1 gerade aufruft -- und das ist schlicht das erste 'python' im PATH, hier
+# der Microsoft-Store-Alias auf 3.14. So entstand ein zweites venv, waehrend das
+# Build-Verzeichnis mit einem anderen konfiguriert war; CMake bricht dann ab mit
+# "... is currently active while the project was configured with ...".
+#
+# Der Pin steht deshalb VOR der idf.py-Pruefung: laeuft das Script aus einem bereits
+# exportierten Terminal, wuerde er sonst uebersprungen und die dort aktive Umgebung
+# gewinnt still.
+$IdfPythonEnv = "$env:USERPROFILE\.espressif\python_env\idf5.5_py3.11_env"
+
+if ($env:IDF_PYTHON_ENV_PATH -and $env:IDF_PYTHON_ENV_PATH -ne $IdfPythonEnv) {
+    Err "Aktive ESP-IDF-Python-Umgebung passt nicht:"
+    Err "  aktiv:    $env:IDF_PYTHON_ENV_PATH"
+    Err "  erwartet: $IdfPythonEnv"
+    Err "Bitte eine frische PowerShell oeffnen (dort greift die Benutzervariable)."
+    exit 1
+}
+$env:IDF_PYTHON_ENV_PATH = $IdfPythonEnv
+
 if (-not (Get-Command idf.py -ErrorAction SilentlyContinue)) {
     $IdfExport = "$env:USERPROFILE\esp\v5.5.1\esp-idf\export.ps1"
     if (Test-Path $IdfExport) {
-        if (-not $env:IDF_PYTHON_ENV_PATH) {
-            $env:IDF_PYTHON_ENV_PATH = "$env:USERPROFILE\.espressif\python_env\idf5.5_py3.11_env"
-        }
         Info "Lade ESP-IDF Umgebung (venv: $env:IDF_PYTHON_ENV_PATH) ..."
         . $IdfExport
     } else {

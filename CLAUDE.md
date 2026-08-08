@@ -21,6 +21,27 @@ idf.py -B C:\Users\bonta\esp\build\fa -p COM7 flash
 - ESP-IDF v5.5.1: `C:\Users\bonta\esp\v5.5.1\esp-idf`
 - Board: ESP32-C3 an COM7 (USB-Serial/JTAG, Boot-Log mit 115200 Baud lesbar)
 
+**Zweite Falle derselben Sorte — die Python-Umgebung.** Gueltig ist **3.11.2**, der von ESP-IDF
+mitgelieferte Interpreter (venv `idf5.5_py3.11_env`); die VSCode-Extension zeigt ueber
+`idf.pythonInstallPath` ebenfalls darauf. Es ist seit 08.2026 das einzige venv — ein zweites,
+`idf5.5_py3.14_env`, war ueber Monate parallel entstanden und wurde entfernt. Durchgesetzt wird
+das ueber die Benutzervariable
+
+```
+IDF_PYTHON_ENV_PATH = C:\Users\bonta\.espressif\python_env\idf5.5_py3.11_env
+```
+
+Ohne sie bildet `idf_tools.py:1874` den venv-Namen aus `sys.version_info` des Interpreters, den
+`export.ps1:24` als blankes `python` aufruft — das ist der Microsoft-Store-Alias auf 3.14, und es
+entsteht ein zweites venv. Passt das nicht zu dem, mit dem das Build-Verzeichnis konfiguriert
+wurde, bricht CMake ab (*„is currently active in the environment while the project was configured
+with"*). Heilung dann: **Build-Verzeichnis loeschen**, nicht das venv wechseln.
+
+- Die Variable wirkt **erst in neu geoeffneten Shells**. Nach dem Setzen VSCode neu starten.
+- `build_and_deploy.ps1` setzt sie selbst und bricht ab, wenn eine abweichende bereits aktiv ist.
+- Beim Umstieg auf eine neuere ESP-IDF-Version muss die Variable mit (Pfad enthaelt `5.5`);
+  `idf_tools.py` prueft das venv gegen die IDF-Version und meldet den Konflikt im Klartext.
+
 ## Release & Deploy
 
 `.\build_and_deploy.ps1` — baut (lokales Build-Verzeichnis), kopiert das Binary als
