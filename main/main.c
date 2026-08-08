@@ -3,8 +3,8 @@
 
 #include "app_config.h"
 #include "board.h"
-#include "fa_connect.h"
 #include "lisy.h"
+#include "power_mgr.h"
 #include "web_server.h"
 #include "wifi_mgr.h"
 
@@ -21,19 +21,24 @@ void app_main(void)
 
     app_config_load();
     board_init();
-    ESP_ERROR_CHECK(lisy_init());
-    lisy_watchdog_enable(g_cfg.watchdog_en);
 
-    if (g_cfg.auto_connect) {
-        /* Verbinden und die Bestueckung von der Gegenstelle holen. Schlaegt das
-         * fehl (kein Geraet, oder die Freigabe dort steht auf OFF), bleiben die
-         * gespeicherten Werte stehen und die Weboberflaeche zeigt den Grund. */
-        fa_connect_run();
-    }
-    lisy_coil_apply_pulse_time(g_cfg.coils, g_cfg.coil_pulse_ms);
+    /* Ein/Aus-Schalter der Anlage: kehrt nur zurueck, wenn DIP1 auf ON steht.
+     * Steht er auf OFF, geht es nach der Gnadenfrist in den Tiefschlaf -- deshalb
+     * vor lisy_init(), den UART braucht ein Schlafender nicht. */
+    power_mgr_boot_gate();
+
+    ESP_ERROR_CHECK(lisy_init());
+
+    /* Beim Start wird bewusst nicht verbunden: solange niemand in der Oberflaeche
+     * "VERBINDEN" drueckt, gehoert der Flipper sich selbst. Watchdog und Pulszeit
+     * setzt fa_connect_run(), sobald die Gegenstelle die Kontrolle gewaehrt. */
 
     wifi_mgr_start();
     ESP_ERROR_CHECK(web_server_start());
+
+    /* Blinkanzeige und DIP1-Waechter zuletzt: ab hier kann jederzeit der
+     * Tiefschlaf einsetzen, und dann soll alles andere schon gestanden haben. */
+    power_mgr_start();
 
     char ip[16];
     wifi_mgr_get_ip(ip, sizeof(ip));

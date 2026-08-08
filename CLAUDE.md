@@ -57,14 +57,21 @@ Vorlage `.env.example`; Enter statt Passwort = nur lokal kopieren). Vor einem Re
   (GPIO0/1/2/4) und reserviert I2C-Pins (SDA=GPIO5, SCL=GPIO8). ESP32-C3-Strapping (GPIO2/8/9)
   beachten. **In v1.10 korrigiert:** TX/RX waren vertauscht und DIP3 stand auf GPIO3 (dort `<nc>`).
   Maßgeblich ist der AtariFA-Schaltplan, nicht diese Datei.
-- `fa_connect.c` — Verbindungsaufbau: GPIO10 setzen → 0x64 → bei Erfolg Info-Gruppe 0..9 abfragen
-  und `g_cfg` daraus füllen. Bei Ablehnung GPIO10 wieder freigeben; der Grund kommt als Klartext
-  in die Weboberfläche. Die im NVS gespeicherten Anzahlen sind nur noch der Rückfall.
+- `power_mgr.c` — Betriebsart: DIP1 ist der Ein/Aus-Schalter (ON = wach, OFF = Tiefschlaf),
+  `power_mgr_boot_gate()` läuft früh in `app_main` und kehrt nur bei DIP1 = ON zurück.
+  Der Blink-Task zeigt den Verbindungszustand (1 Hz / 5 Hz) und überwacht DIP1 im Betrieb.
+  Vor dem Einschlafen **erst** `fa_connect_release()`, dann GPIO-Hold, dann Deep Sleep.
+- `fa_connect.c` — Verbindungsaufbau: GPIO10 setzen → 0x64 → bei Erfolg Info-Gruppe 0..9 abfragen.
+  Bei Ablehnung GPIO10 wieder freigeben; der Grund kommt als Klartext in die Weboberfläche.
+  **`fa_conn_info_t` hält seit v1.11 die Bestückung** (Anzahlen + Display-Breiten) — sie gehört
+  zur Verbindung, nicht in die persistente Konfiguration. Ohne Kontrolle steht dort überall 0.
 - `lisy.c` — LISY-Befehle über UART1; jeder Zugriff Mutex-geschützt; Watchdog (0x65)
   per esp_timer alle 500 ms; Lampen-/Schalter-Zustand als Bitmaps gespiegelt
-- `app_config.c` — Konfiguration als NVS-Blob (Namespace `facfg`), mit `magic`+`version` im
-  Struct: früher wurde nur die Größe geprüft, eine Struct-Änderung hat die Konfiguration also
-  entweder still verworfen oder falsch gelesen. `CFG_VERSION` bei jeder Feldänderung hochzählen.
+- `app_config.c` — NVS-Blob (Namespace `facfg`) mit `magic`+`version` im Struct: früher wurde nur
+  die Größe geprüft, eine Struct-Änderung hat die Konfiguration also entweder still verworfen
+  oder falsch gelesen. `CFG_VERSION` bei jeder Feldänderung hochzählen (v1.11: 2 → 3).
+  Enthält seit v1.11 **nur noch `coil_pulse_ms`** — alles andere kam entweder vom Gerät oder
+  war eine Einstellung, die dem Verbindungszustand widersprechen konnte.
 - `wifi_mgr.c` — STA mit Credentials aus NVS (Namespace `wifi`), Fallback: offener AP
   „FA-Control" + Mini-DNS (Captive Portal) auf 192.168.4.1; mDNS `fa-control.local`
 - `web_server.c` — REST-API nur über Query-Parameter (kein JSON-Parsing);
@@ -73,16 +80,29 @@ Vorlage `.env.example`; Enter statt Passwort = nur lokal kopieren). Vor einem Re
   (esp_https_ota + Cert-Bundle); Listing = Apache-Index, per `href="*.bin"` gescannt;
   zwei OTA-Partitionen à 1,5 MB (`partitions.csv`, Flash 4 MB); Version aus `version.txt`
 - `web/index.html` — Single-Page-Frontend (Vanilla JS, Retro-CRT-Stil); wird beim Build
-  durch `web/gzip_file.py` gegzippt und per `target_add_binary_data` eingebettet
+  durch `web/gzip_file.py` gegzippt und per `target_add_binary_data` eingebettet.
+  Startseite = Verbindungsaufbau + gemeldete Bestückung + Kachelmenü; Kacheln 01–05 sind
+  gesperrt, solange `conn !== 1`. Menü 06 heißt „WLAN" (Netz + Firmware), die Spulen-Pulszeit
+  sitzt im Menü „SPULEN".
 
 ## Konventionen
 
 - Schalter sind im LISY-Protokoll nur lesbar (0x28/0x29) — UI zeigt nur Status
 - Spulen werden ausschließlich gepulst (0x17), nie dauerhaft eingeschaltet
 - Protokoll-Maxima: Lampen 255, Spulen 127, Schalter 127, Sounds 255, Displays 7
-- **Anzahlen kommen vom Gerät, nicht aus dem Formular.** Kam die Verbindung zustande, sind die
-  Felder in der Oberfläche schreibgeschützt (`cfg.src == "fpga"`) — sie beschreiben dann die
-  tatsächliche Bestückung. Von Hand eingetragene Werte gelten nur ohne Gegenstelle.
-- Solange FA_Control die Kontrolle hat, läuft der Watchdog **immer**, unabhängig von der
-  Einstellung: er ist die Totmannschaltung der Gegenseite (dort ~2 s), nicht nur ein Lebenszeichen.
+- **Ohne Verbindung geht nichts.** Die Bestückung kommt ausschließlich vom Gerät; es gibt weder
+  Handeingabe noch gespeicherten Rückfall noch Auto-Connect beim Start. Die Bereichsprüfungen der
+  Steuer-Handler laufen gegen `fa_connect_info()->…` und weisen ohne Kontrolle von selbst ab —
+  die graue Kachel im Browser ist nur die Höflichkeitsform davon.
+- Der Watchdog ist an die aktive Kontrolle gekoppelt und **nicht einstellbar**: er ist die
+  Totmannschaltung der Gegenseite (dort ~2 s), nicht nur ein Lebenszeichen. Ihn abschaltbar zu
+  machen hieß, den Kontrollverlust zur Bedienoption zu erklären.
+- **DIP-Bank (seit v1.12):** DIP1 (GPIO0) = wach/Tiefschlaf, DIP2 (GPIO1) = Blinkanzeige aus,
+  DIP3/DIP4 frei. DIP1 muss auf GPIO0–5 bleiben — nur diese Pins wecken den C3 aus dem Tiefschlaf.
+- **GPIO8 ist doppelt belegt** (blaue LED *und* reserviertes I2C SCL). Solange I2C keinen
+  Treiber-Init hat, gehört der Pin der Blinkanzeige; wer I2C in Betrieb nimmt, muss DIP2 auf ON
+  legen — dann fasst `power_mgr` GPIO8 nicht an. Beim Bearbeiten von `board_pins.h` beide
+  Einträge zusammen betrachten.
+- Zum Flashen DIP1 auf ON legen: im Tiefschlaf verschwindet der USB-Serial/JTAG-Port. Sonst
+  bleiben nur die 30 s `POWER_BOOT_GRACE_MS` nach dem Start oder BOOT-Taster während des Resets.
 - Log-/UI-Texte auf Deutsch

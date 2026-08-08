@@ -42,21 +42,50 @@
 #define BOARD_PIN_I2C_SDA     5
 #define BOARD_PIN_I2C_SCL     8
 
+/* --- Blaue Onboard-LED (ESP32-C3-Modul) ---------------------------------- */
+/* Ausgang, ACTIVE LOW: low = LED an.
+ *
+ * ACHTUNG, DOPPELBELEGUNG: das ist derselbe Pin wie BOARD_PIN_I2C_SCL. Beides
+ * steht hier bewusst nebeneinander -- I2C ist reserviert, aber unbenutzt (kein
+ * Treiber-Init), die LED wird dagegen wirklich getrieben. Wird I2C eines Tages
+ * in Betrieb genommen, muss die Blinkanzeige ueber Options-DIP 2 (auf ON)
+ * abgeschaltet werden; power_mgr laesst GPIO8 dann unkonfiguriert und hochohmig,
+ * sodass der I2C-Treiber den Pin sauber uebernehmen kann.
+ *
+ * GPIO8 ist ausserdem Strapping-Pin und muss beim Reset high liegen. Das ist
+ * gegeben: der externe I2C-Pull-Up haelt ihn, und getrieben wird er erst nach
+ * dem Boot. Vor dem Tiefschlaf wird er high gehalten (gpio_hold_en). */
+#define BOARD_PIN_LED          8
+#define BOARD_LED_ACTIVE_LEVEL 0
+
 /* --- Taster -------------------------------------------------------------- */
 /* Eingang mit INTERNEM Pull-Up. GPIO9 = BOOT-Pin (high beim Boot).
  * Hinweis: Taster WAEHREND eines Resets gehalten -> Download-Modus. */
 #define BOARD_PIN_BUTTON      9
 
 /* --- 4er-DIP-Bank (Optionen) --------------------------------------------- */
-/* Vier Eingaenge mit INTERNEM Pull-Up (alle non-strapping).
+/* Vier Eingaenge mit INTERNEM Pull-Up, ON = GND = low.
  * DIP3 war auf GPIO3 eingetragen; laut Schaltplan fuehrt die Stiftleiste K11
  * GPIO0/1/2/4, GPIO3 ist dort <nc>. Korrigiert auf GPIO2 (Strapping-Pin, wird
- * vom internen Pull-Up beim Boot high gehalten). Die Bank hat ohnehin noch
- * keine Funktion -- board_dip_read() hat bis heute keinen Aufrufer. */
+ * vom internen Pull-Up beim Boot high gehalten).
+ *
+ * Belegung seit v1.12 (vorher hatte die Bank keine Funktion):
+ *   DIP1 = Ein/Aus. ON  -> wach: WLAN, Webserver, Steuerung.
+ *                   OFF -> Tiefschlaf, Aufwecken durch Umlegen auf ON.
+ *   DIP2 = Blinkanzeige. ON -> aus, GPIO8 bleibt frei fuer I2C (siehe oben).
+ *   DIP3, DIP4 = frei.
+ *
+ * DIP1 muss auf GPIO0..GPIO5 liegen: nur diese Pins koennen den ESP32-C3 aus dem
+ * Tiefschlaf wecken (SOC_GPIO_DEEP_SLEEP_WAKE_VALID_GPIO_MASK). Beim Umlegen der
+ * Bank also darauf achten. */
 #define BOARD_PIN_DIP1        0
 #define BOARD_PIN_DIP2        1
 #define BOARD_PIN_DIP3        2
 #define BOARD_PIN_DIP4        4
+
+/* Bitmasken zu board_dip_read() -- Bit0 = DIP1. */
+#define BOARD_DIP_ACTIVE      (1 << 0)   /* DIP1 ON: wach statt Tiefschlaf */
+#define BOARD_DIP_NO_LED      (1 << 1)   /* DIP2 ON: Blinkanzeige abgeschaltet */
 
 /* --- Reserve ------------------------------------------------------------- */
 /* GPIO2 (Strapping) bewusst freigehalten fuer kuenftige Erweiterungen. */

@@ -2,7 +2,7 @@
     "cmake.configureOnOpen": false,
     "cmake.options.statusBarVisibility": "hidden",
     "cmake.statusbar.visibility": "hidden",
-    "idf.portWin": "COM7",
+    "idf.portWin": "COM6",
     "idf.adapterTargetName": "esp32c3",
     "idf.espIdfPathWin": "C:\\Users\\bonta\\esp\\v5.5.1\\esp-idf",
     "idf.buildPathWin": "C:\\Users\\bonta\\esp\\build\\fa",

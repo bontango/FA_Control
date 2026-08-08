@@ -19,22 +19,19 @@
  * Mit Magic und Version ist beides eindeutig. CFG_VERSION bei jeder Aenderung
  * der Feldbelegung hochzaehlen. */
 #define CFG_MAGIC   0xFA
-#define CFG_VERSION 2
+#define CFG_VERSION 3
 
+/*
+ * Was hier steht, muss einen Neustart ueberleben und darf nicht vom Geraet kommen.
+ * Das ist seit Version 1.11 nur noch die Spulen-Pulszeit: die Bestueckung (Anzahl
+ * Lampen, Spulen, Schalter, Sounds, Displays) meldet die Gegenstelle beim Verbinden
+ * und steht deshalb in fa_conn_info_t, nicht hier. Sie zusaetzlich zu speichern
+ * hiesse, zwei Wahrheiten zu pflegen, von denen eine veraltet.
+ */
 typedef struct {
     uint8_t magic;
     uint8_t version;
-    uint8_t lamps;
-    uint8_t coils;
-    uint8_t switches;
-    uint8_t sounds;
-    uint8_t displays;
-    uint8_t disp_width[CFG_MAX_DISPLAYS];
-    bool    watchdog_en;
     uint8_t coil_pulse_ms;
-    /* true = beim Start automatisch verbinden und die Anzahlen von der Gegenstelle
-     * holen. false = es gelten die hier gespeicherten, von Hand eingetragenen Werte. */
-    bool    auto_connect;
 } app_config_t;
 
 extern app_config_t g_cfg;

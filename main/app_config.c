@@ -16,20 +16,7 @@ static void set_defaults(app_config_t *c)
     memset(c, 0, sizeof(*c));
     c->magic = CFG_MAGIC;
     c->version = CFG_VERSION;
-    /* Diese Anzahlen sind nur der Rueckfall fuer den Fall, dass keine Gegenstelle
-     * antwortet. Im Normalfall kommen sie beim Verbinden vom Geraet (fa_connect.c). */
-    c->lamps = 40;
-    c->coils = 20;
-    c->switches = 40;
-    c->sounds = 16;
-    c->displays = 5;
-    c->disp_width[0] = 4;   /* Status-/Credit-Display */
-    for (int i = 1; i < CFG_MAX_DISPLAYS; i++) {
-        c->disp_width[i] = 6;
-    }
-    c->watchdog_en = true;
     c->coil_pulse_ms = 50;
-    c->auto_connect = true;
 }
 
 void app_config_load(void)

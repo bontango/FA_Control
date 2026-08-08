@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include "esp_err.h"
 
+#include "app_config.h"   /* CFG_MAX_DISPLAYS */
+
 /*
  * Verbindungsaufbau zur Flipper-Seite ("Connect").
  *
@@ -16,10 +18,13 @@
  *   2. LISY_CMD_INIT_RESET (0x64) senden. Die Antwort sagt, ob die Gegenstelle
  *      die Kontrolle gewaehrt -- sie tut das nur, wenn der Betreiber es dort
  *      freigegeben hat (bei AtariFA: Options-DIP 4 auf ON).
- *   3. Bei Erfolg die Info-Gruppe 0..9 abfragen und damit g_cfg fuellen.
+ *   3. Bei Erfolg die Info-Gruppe 0..9 abfragen; die gemeldete Bestueckung landet
+ *      in fa_conn_info_t.
  *
- * Die von Hand eingetragenen Werte bleiben als Rueckfall bestehen und werden nur
- * ueberschrieben, wenn die Gegenstelle wirklich geantwortet hat.
+ * Seit Version 1.11 gibt es keine Handeingabe und keinen Rueckfall mehr: die
+ * Bestueckung ist Teil der Verbindung. Ohne gewaehrte Kontrolle stehen alle Zaehler
+ * auf 0 -- damit weisen die Bereichspruefungen im Webserver jeden Steuerbefehl von
+ * selbst ab, statt ins Leere zu senden.
  */
 
 typedef enum {
@@ -37,7 +42,13 @@ typedef struct {
     char fw_ver[12];       /* Opcode 1, z.B. "0.1.3" */
     char api_ver[12];      /* Opcode 2, z.B. "0.12" */
     char game[12];         /* Opcode 8, Spielnummer */
-    bool counts_from_device; /* true = g_cfg stammt von der Gegenstelle, nicht aus dem Formular */
+    /* Bestueckung laut Info-Gruppe 0x03-0x09; 0 heisst "nicht verbunden". */
+    uint8_t lamps;         /* Opcode 3 */
+    uint8_t coils;         /* Opcode 4 */
+    uint8_t switches;      /* Opcode 9 */
+    uint8_t sounds;        /* Opcode 5 -- 0 ist gueltig ("kann keinen Ton") */
+    uint8_t displays;      /* Opcode 6 */
+    uint8_t disp_width[CFG_MAX_DISPLAYS];  /* Opcode 7, Stellen je Display */
     int  last_code;        /* roher Rueckgabewert von 0x64, fuer die Fehlersuche */
 } fa_conn_info_t;
 

@@ -113,25 +113,22 @@ static esp_err_t root_get_handler(httpd_req_t *req)
 
 static esp_err_t config_get_handler(httpd_req_t *req)
 {
+    const fa_conn_info_t *ci = fa_connect_info();
     char dw[64] = "";
     size_t p = 0;
-    for (int i = 0; i < g_cfg.displays && i < CFG_MAX_DISPLAYS; i++) {
-        p += snprintf(dw + p, sizeof(dw) - p, "%s%u", i ? "," : "", g_cfg.disp_width[i]);
+    for (int i = 0; i < ci->displays && i < CFG_MAX_DISPLAYS; i++) {
+        p += snprintf(dw + p, sizeof(dw) - p, "%s%u", i ? "," : "", ci->disp_width[i]);
     }
-    const fa_conn_info_t *ci = fa_connect_info();
-    char buf[512];
+    char buf[448];
     snprintf(buf, sizeof(buf),
              "{\"lamps\":%u,\"coils\":%u,\"switches\":%u,\"sounds\":%u,"
-             "\"displays\":%u,\"dw\":[%s],\"wd\":%d,\"pulse\":%u,"
-             "\"maxl\":%d,\"maxc\":%d,\"maxs\":%d,\"maxo\":%d,\"maxd\":%d,"
-             "\"auto\":%d,\"src\":\"%s\",\"conn\":%d,\"connmsg\":\"%s\","
+             "\"displays\":%u,\"dw\":[%s],\"wd\":%d,\"wdlast\":%d,\"pulse\":%u,"
+             "\"conn\":%d,\"connmsg\":\"%s\","
              "\"hw\":\"%s\",\"fwver\":\"%s\",\"apiver\":\"%s\",\"game\":\"%s\"}",
-             g_cfg.lamps, g_cfg.coils, g_cfg.switches, g_cfg.sounds,
-             g_cfg.displays, dw, g_cfg.watchdog_en ? 1 : 0, g_cfg.coil_pulse_ms,
-             CFG_MAX_LAMPS, CFG_MAX_COILS, CFG_MAX_SWITCHES, CFG_MAX_SOUNDS,
-             CFG_MAX_DISPLAYS,
-             g_cfg.auto_connect ? 1 : 0,
-             ci->counts_from_device ? "fpga" : "manual",
+             ci->lamps, ci->coils, ci->switches, ci->sounds,
+             ci->displays, dw,
+             lisy_watchdog_enabled() ? 1 : 0, lisy_watchdog_last_result(),
+             g_cfg.coil_pulse_ms,
              (int)ci->state, fa_connect_state_str(),
              ci->hw, ci->fw_ver, ci->api_ver, ci->game);
     httpd_resp_set_type(req, "application/json");
@@ -143,6 +140,7 @@ static esp_err_t config_get_handler(httpd_req_t *req)
 static esp_err_t connect_post_handler(httpd_req_t *req)
 {
     fa_connect_run();
+    lisy_lamp_bitmap_clear();
     s_switches_initialized = false;
     memset(s_disp_text, 0, sizeof(s_disp_text));
     return config_get_handler(req);   /* gleich die frischen Werte zurueckliefern */
@@ -151,6 +149,11 @@ static esp_err_t connect_post_handler(httpd_req_t *req)
 static esp_err_t disconnect_post_handler(httpd_req_t *req)
 {
     fa_connect_release();
+    /* Die Spiegelbilder gehoeren zur alten Verbindung -- ab jetzt steuert wieder
+     * das Spiel, was hier stuende, waere geraten. */
+    lisy_lamp_bitmap_clear();
+    s_switches_initialized = false;
+    memset(s_disp_text, 0, sizeof(s_disp_text));
     return config_get_handler(req);
 }
 
@@ -165,45 +168,31 @@ static uint8_t clamp_u8(int v, int min, int max)
     return (uint8_t)v;
 }
 
+/* Die einzige noch speicherbare Einstellung ist die Spulen-Pulszeit. Alles andere
+ * kommt vom Geraet (Bestueckung) oder haengt am Verbindungszustand (Watchdog). */
 static esp_err_t config_post_handler(httpd_req_t *req)
 {
-    g_cfg.auto_connect = get_param_int(req, "auto", g_cfg.auto_connect ? 1 : 0) != 0;
-    g_cfg.lamps    = clamp_u8(get_param_int(req, "lamps", g_cfg.lamps), 1, CFG_MAX_LAMPS);
-    g_cfg.coils    = clamp_u8(get_param_int(req, "coils", g_cfg.coils), 1, CFG_MAX_COILS);
-    g_cfg.switches = clamp_u8(get_param_int(req, "switches", g_cfg.switches), 1, CFG_MAX_SWITCHES);
-    g_cfg.sounds   = clamp_u8(get_param_int(req, "sounds", g_cfg.sounds), 1, CFG_MAX_SOUNDS);
-    g_cfg.displays = clamp_u8(get_param_int(req, "displays", g_cfg.displays), 1, CFG_MAX_DISPLAYS);
     g_cfg.coil_pulse_ms = clamp_u8(get_param_int(req, "pulse", g_cfg.coil_pulse_ms), 1, 255);
-    g_cfg.watchdog_en = get_param_int(req, "wd", g_cfg.watchdog_en ? 1 : 0) != 0;
-
-    char dw[64];
-    if (get_param(req, "dw", dw, sizeof(dw))) {
-        char *save = NULL;
-        char *tok = strtok_r(dw, ",", &save);
-        for (int i = 0; tok && i < CFG_MAX_DISPLAYS; i++) {
-            g_cfg.disp_width[i] = clamp_u8(atoi(tok), 1, CFG_MAX_DISP_W);
-            tok = strtok_r(NULL, ",", &save);
-        }
-    }
 
     esp_err_t err = app_config_save();
     if (err != ESP_OK) {
         return send_err(req, "NVS-Fehler");
     }
-    lisy_watchdog_enable(g_cfg.watchdog_en);
-    lisy_coil_apply_pulse_time(g_cfg.coils, g_cfg.coil_pulse_ms);
-    s_switches_initialized = false;
-    ESP_LOGI(TAG, "Konfiguration gespeichert");
+    lisy_coil_apply_pulse_time(fa_connect_info()->coils, g_cfg.coil_pulse_ms);
+    ESP_LOGI(TAG, "Spulen-Pulszeit gespeichert: %u ms", g_cfg.coil_pulse_ms);
     return send_ok(req);
 }
 
 /* ---- API: Steuerung ------------------------------------------------------ */
 
+/* Alle Steuer-Handler pruefen gegen die vom Geraet gemeldete Bestueckung. Ohne
+ * gewaehrte Kontrolle steht die auf 0, damit weist schon die Bereichspruefung
+ * jeden Befehl ab -- unabhaengig davon, was die Weboberflaeche anbietet. */
 static esp_err_t lamp_post_handler(httpd_req_t *req)
 {
     int id = get_param_int(req, "id", -1);
     int on = get_param_int(req, "on", -1);
-    if (id < 0 || id >= g_cfg.lamps || on < 0) {
+    if (id < 0 || id >= fa_connect_info()->lamps || on < 0) {
         return send_err(req, "Parameter");
     }
     lisy_lamp_set((uint8_t)id, on != 0);
@@ -213,7 +202,7 @@ static esp_err_t lamp_post_handler(httpd_req_t *req)
 static esp_err_t coil_post_handler(httpd_req_t *req)
 {
     int id = get_param_int(req, "id", -1);
-    if (id < 0 || id >= g_cfg.coils) {
+    if (id < 0 || id >= fa_connect_info()->coils) {
         return send_err(req, "Parameter");
     }
     lisy_coil_pulse((uint8_t)id);
@@ -224,7 +213,7 @@ static esp_err_t sound_post_handler(httpd_req_t *req)
 {
     int id = get_param_int(req, "id", -1);
     int on = get_param_int(req, "on", 1);
-    if (id < 0 || id >= g_cfg.sounds) {
+    if (id < 0 || id >= fa_connect_info()->sounds) {
         return send_err(req, "Parameter");
     }
     if (on) {
@@ -237,24 +226,31 @@ static esp_err_t sound_post_handler(httpd_req_t *req)
 
 static esp_err_t display_post_handler(httpd_req_t *req)
 {
+    const fa_conn_info_t *ci = fa_connect_info();
     int id = get_param_int(req, "id", -1);
     char text[CFG_MAX_DISP_W + 1] = "";
     get_param(req, "text", text, sizeof(text));
-    if (id < 0 || id >= g_cfg.displays) {
+    if (id < 0 || id >= ci->displays) {
         return send_err(req, "Parameter");
     }
-    lisy_display_set((uint8_t)id, text, g_cfg.disp_width[id]);
+    lisy_display_set((uint8_t)id, text, ci->disp_width[id]);
     strlcpy(s_disp_text[id], text, sizeof(s_disp_text[id]));
     return send_ok(req);
 }
 
 static esp_err_t state_get_handler(httpd_req_t *req)
 {
-    if (!s_switches_initialized) {
-        lisy_switches_refresh_all(g_cfg.switches);
-        s_switches_initialized = true;
-    } else {
-        lisy_switches_drain_changes();
+    const fa_conn_info_t *ci = fa_connect_info();
+
+    /* Ohne gewaehrte Kontrolle wird nichts abgefragt: der Bus gehoert dann dem
+     * Spiel, und ein Schalter-Poll waere eine Einmischung. */
+    if (ci->state == FA_CONN_ACTIVE) {
+        if (!s_switches_initialized) {
+            lisy_switches_refresh_all(ci->switches);
+            s_switches_initialized = true;
+        } else {
+            lisy_switches_drain_changes();
+        }
     }
 
     char lamps_hex[LISY_LAMP_BITMAP_LEN * 2 + 1];
@@ -264,7 +260,7 @@ static esp_err_t state_get_handler(httpd_req_t *req)
 
     char disp[CFG_MAX_DISPLAYS * (CFG_MAX_DISP_W + 4) + 4] = "";
     size_t p = 0;
-    for (int i = 0; i < g_cfg.displays; i++) {
+    for (int i = 0; i < ci->displays; i++) {
         p += snprintf(disp + p, sizeof(disp) - p, "%s\"%s\"",
                       i ? "," : "", s_disp_text[i]);
     }
@@ -283,7 +279,7 @@ static esp_err_t reset_post_handler(httpd_req_t *req)
     lisy_lamp_bitmap_clear();
     memset(s_disp_text, 0, sizeof(s_disp_text));
     s_switches_initialized = false;
-    lisy_coil_apply_pulse_time(g_cfg.coils, g_cfg.coil_pulse_ms);
+    lisy_coil_apply_pulse_time(fa_connect_info()->coils, g_cfg.coil_pulse_ms);
 
     char buf[32];
     snprintf(buf, sizeof(buf), "{\"result\":%d}", r);
@@ -295,12 +291,11 @@ static esp_err_t status_get_handler(httpd_req_t *req)
 {
     char ip[16];
     wifi_mgr_get_ip(ip, sizeof(ip));
-    char buf[160];
+    char buf[128];
     snprintf(buf, sizeof(buf),
-             "{\"mode\":\"%s\",\"ip\":\"%s\",\"wd\":%d,\"wd_last\":%d,\"ver\":\"%s\"}",
+             "{\"mode\":\"%s\",\"ip\":\"%s\",\"ver\":\"%s\"}",
              wifi_mgr_get_mode() == WIFI_MGR_MODE_AP ? "ap" : "sta",
-             ip, lisy_watchdog_enabled() ? 1 : 0, lisy_watchdog_last_result(),
-             esp_app_get_description()->version);
+             ip, esp_app_get_description()->version);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
 }

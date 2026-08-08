@@ -35,9 +35,9 @@ const char *fa_connect_state_str(void)
     }
 }
 
-/* Info-Gruppe 0..9 abfragen und g_cfg damit fuellen.
- * Nur was wirklich beantwortet wird, ueberschreibt den bisherigen Wert -- eine
- * halb beantwortete Abfrage soll die Konfiguration nicht verstuemmeln. */
+/* Info-Gruppe 0..9 abfragen und s_info damit fuellen.
+ * Nur plausible Antworten werden uebernommen; was das Geraet nicht beantwortet,
+ * bleibt auf 0 und ist damit in der Oberflaeche schlicht nicht vorhanden. */
 static void query_counts(void)
 {
     int v;
@@ -49,41 +49,39 @@ static void query_counts(void)
 
     v = lisy_get_byte(LISY_CMD_G_NO_LAMPS);
     if (v > 0 && v <= CFG_MAX_LAMPS) {
-        g_cfg.lamps = (uint8_t)v;
+        s_info.lamps = (uint8_t)v;
     }
     v = lisy_get_byte(LISY_CMD_G_NO_SOL);
     if (v > 0 && v <= CFG_MAX_COILS) {
-        g_cfg.coils = (uint8_t)v;
+        s_info.coils = (uint8_t)v;
     }
     v = lisy_get_byte(LISY_CMD_G_NO_SW);
     if (v > 0 && v <= CFG_MAX_SWITCHES) {
-        g_cfg.switches = (uint8_t)v;
+        s_info.switches = (uint8_t)v;
     }
     /* 0 Sounds ist eine gueltige Aussage ("dieses Geraet kann keinen Ton"). */
     v = lisy_get_byte(LISY_CMD_G_NO_SOUNDS);
     if (v >= 0 && v <= CFG_MAX_SOUNDS) {
-        g_cfg.sounds = (uint8_t)v;
+        s_info.sounds = (uint8_t)v;
     }
     v = lisy_get_byte(LISY_CMD_G_NO_DISP);
     if (v > 0 && v <= CFG_MAX_DISPLAYS) {
-        g_cfg.displays = (uint8_t)v;
+        s_info.displays = (uint8_t)v;
         /* Breite je Display einzeln nachfragen (Opcode 7 liefert Typ + Stellen). */
-        for (int i = 0; i < g_cfg.displays; i++) {
+        for (int i = 0; i < s_info.displays; i++) {
             uint8_t type, digits;
             if (lisy_get_2bytes(LISY_CMD_G_DISP_DETAIL, (uint8_t)i, &type, &digits) == 0) {
                 if (type != 0 && digits > 0 && digits <= CFG_MAX_DISP_W) {
-                    g_cfg.disp_width[i] = digits;
+                    s_info.disp_width[i] = digits;
                 }
             }
         }
     }
 
-    s_info.counts_from_device = true;
-
     ESP_LOGI(TAG, "Gegenstelle: %s FW %s API %s Spiel %s",
              s_info.hw, s_info.fw_ver, s_info.api_ver, s_info.game);
     ESP_LOGI(TAG, "Bestueckung: %u Lampen, %u Spulen, %u Schalter, %u Sounds, %u Displays",
-             g_cfg.lamps, g_cfg.coils, g_cfg.switches, g_cfg.sounds, g_cfg.displays);
+             s_info.lamps, s_info.coils, s_info.switches, s_info.sounds, s_info.displays);
 }
 
 esp_err_t fa_connect_run(void)
@@ -110,8 +108,11 @@ esp_err_t fa_connect_run(void)
 
     if (s_info.state != FA_CONN_ACTIVE) {
         /* Anforderung sofort zuruecknehmen: eine dauerhaft gesetzte Leitung ohne
-         * gewaehrte Kontrolle waere nur ein Stolperdraht. */
+         * gewaehrte Kontrolle waere nur ein Stolperdraht. Der Watchdog muss hier
+         * mit aus -- ein zweiter, gescheiterter Verbindungsversuch darf kein
+         * Lebenszeichen aus dem vorherigen stehenlassen. */
         board_ctrl_request(false);
+        lisy_watchdog_enable(false);
         ESP_LOGW(TAG, "%s (Code %d)", fa_connect_state_str(), r);
         return ESP_OK;
     }
@@ -119,10 +120,11 @@ esp_err_t fa_connect_run(void)
     query_counts();
 
     /* Der Watchdog ist die Totmannschaltung der Gegenstelle: bleibt er aus, gibt
-     * sie die Kontrolle nach kurzer Zeit von selbst zurueck. Solange wir steuern,
-     * laeuft er deshalb unabhaengig von der Einstellung in der Weboberflaeche. */
+     * sie die Kontrolle nach kurzer Zeit (dort ~2 s) von selbst zurueck. Er ist
+     * damit kein Komfortmerkmal, sondern Bedingung der aktiven Kontrolle -- und
+     * genau deshalb an sie gekoppelt statt einstellbar. */
     lisy_watchdog_enable(true);
-    lisy_coil_apply_pulse_time(g_cfg.coils, g_cfg.coil_pulse_ms);
+    lisy_coil_apply_pulse_time(s_info.coils, g_cfg.coil_pulse_ms);
 
     ESP_LOGI(TAG, "Kontrolle aktiv");
     return ESP_OK;
@@ -131,8 +133,10 @@ esp_err_t fa_connect_run(void)
 void fa_connect_release(void)
 {
     board_ctrl_request(false);
+    /* Watchdog aus, bevor die Bestueckung geloescht wird: ohne Kontrolle hat
+     * niemand etwas von einem Lebenszeichen auf dem Bus. */
+    lisy_watchdog_enable(false);
+    memset(&s_info, 0, sizeof(s_info));
     s_info.state = FA_CONN_IDLE;
-    s_info.counts_from_device = false;
-    lisy_watchdog_enable(g_cfg.watchdog_en);
     ESP_LOGI(TAG, "Kontrolle zurueckgegeben");
 }
