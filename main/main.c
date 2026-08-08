@@ -3,6 +3,7 @@
 
 #include "app_config.h"
 #include "board.h"
+#include "fa_connect.h"
 #include "lisy.h"
 #include "web_server.h"
 #include "wifi_mgr.h"
@@ -22,6 +23,13 @@ void app_main(void)
     board_init();
     ESP_ERROR_CHECK(lisy_init());
     lisy_watchdog_enable(g_cfg.watchdog_en);
+
+    if (g_cfg.auto_connect) {
+        /* Verbinden und die Bestueckung von der Gegenstelle holen. Schlaegt das
+         * fehl (kein Geraet, oder die Freigabe dort steht auf OFF), bleiben die
+         * gespeicherten Werte stehen und die Weboberflaeche zeigt den Grund. */
+        fa_connect_run();
+    }
     lisy_coil_apply_pulse_time(g_cfg.coils, g_cfg.coil_pulse_ms);
 
     wifi_mgr_start();

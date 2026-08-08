@@ -14,16 +14,17 @@ static const char *TAG = "board";
 
 void board_init(void)
 {
-    /* Status-Ausgang (externer Pull-Up) — zuerst inaktiv. */
+    /* Uebernahme-Anforderung — zuerst inaktiv, damit das Spiel beim Einschalten
+     * des ESP nicht angehalten wird. */
     gpio_config_t out_cfg = {
-        .pin_bit_mask = (1ULL << BOARD_PIN_STATUS),
+        .pin_bit_mask = (1ULL << BOARD_PIN_CTRL_REQ),
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
     ESP_ERROR_CHECK(gpio_config(&out_cfg));
-    board_status_set(false);
+    board_ctrl_request(false);
 
     /* Taster + DIP-Bank als Eingaenge mit internem Pull-Up. */
     gpio_config_t in_cfg = {
@@ -38,17 +39,18 @@ void board_init(void)
     /* I2C-Pins (GPIO%d/%d) bleiben reserviert — Treiber-Init erst bei Bedarf. */
 
     ESP_LOGI(TAG,
-             "Pins reserviert: Status=GPIO%d Taster=GPIO%d DIP=%d/%d/%d/%d "
+             "Pins reserviert: CtrlReq=GPIO%d Taster=GPIO%d DIP=%d/%d/%d/%d "
              "I2C(SDA=%d,SCL=%d) Reserve=GPIO%d",
-             BOARD_PIN_STATUS, BOARD_PIN_BUTTON,
+             BOARD_PIN_CTRL_REQ, BOARD_PIN_BUTTON,
              BOARD_PIN_DIP1, BOARD_PIN_DIP2, BOARD_PIN_DIP3, BOARD_PIN_DIP4,
              BOARD_PIN_I2C_SDA, BOARD_PIN_I2C_SCL, BOARD_PIN_RESERVED);
 }
 
-void board_status_set(bool active)
+void board_ctrl_request(bool active)
 {
-    int level = active ? BOARD_STATUS_ACTIVE_LEVEL : !BOARD_STATUS_ACTIVE_LEVEL;
-    gpio_set_level(BOARD_PIN_STATUS, level);
+    int level = active ? BOARD_CTRL_ACTIVE_LEVEL : !BOARD_CTRL_ACTIVE_LEVEL;
+    gpio_set_level(BOARD_PIN_CTRL_REQ, level);
+    ESP_LOGI(TAG, "Uebernahme-Anforderung %s", active ? "gesetzt" : "zurueckgenommen");
 }
 
 bool board_button_pressed(void)

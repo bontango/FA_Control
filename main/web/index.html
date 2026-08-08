@@ -52,6 +52,15 @@ h1 small{font-size:.6rem;letter-spacing:.2em;color:var(--dim);display:block}
   border:1px dashed var(--amber);color:var(--amber);
   font-size:.75rem;cursor:pointer;letter-spacing:.05em;
 }
+/* Verbindungsbanner: zeigt, ob die Flipper-Seite uns die Kontrolle gibt */
+#connbar{
+  margin:1rem 1.2rem 0;padding:.6rem .8rem;border:1px solid var(--line);
+  font-size:.75rem;letter-spacing:.05em;color:var(--dim);
+}
+#connbar.ok{border-color:var(--green);color:var(--green)}
+#connbar.bad{border-color:#7a2410;color:#ff6a3c;cursor:pointer}
+/* Zaehler, die vom Geraet kommen, sind nicht von Hand aenderbar */
+input[readonly]{color:var(--dim);border-style:dashed}
 main{max-width:880px;margin:0 auto;padding:1.4rem 1.2rem}
 /* ---- Hauptmenue ---- */
 #menu{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.8rem}
@@ -158,6 +167,7 @@ legend{font-size:.72rem;color:var(--amber);padding:0 .5rem;letter-spacing:.2em}
   <span id="status">VERBINDE …</span>
 </header>
 <div id="apwarn">▲ AP-MODUS — HIER KLICKEN UM WLAN EINZURICHTEN</div>
+<div id="connbar">VERBINDUNG WIRD GEPRÜFT …</div>
 <main>
 
 <div id="menu">
@@ -185,7 +195,19 @@ legend{font-size:.72rem;color:var(--amber);padding:0 .5rem;letter-spacing:.2em}
   <p class="hint">ZIFFERN EINGEBEN UND SENDEN (BCD7, RECHTSBÜNDIG)</p><div id="dlist"></div></section>
 
 <section id="config"><div class="shead"><button class="back">◀ MENÜ</button><h2>KONFIG</h2></div>
+  <fieldset><legend>VERBINDUNG</legend>
+    <p class="hint" id="conninfo" style="margin-top:0">–</p>
+    <div class="cfg">
+      <div><label>BEIM START AUTOMATISCH VERBINDEN</label>
+        <select id="c_auto"><option value="1">JA</option><option value="0">NEIN</option></select></div>
+    </div>
+    <div class="row">
+      <button class="btn" id="doconnect">VERBINDEN</button>
+      <button class="btn warn" id="dodisconnect">KONTROLLE ZURÜCKGEBEN</button>
+    </div>
+  </fieldset>
   <fieldset><legend>ANZAHL STEUERELEMENTE</legend>
+    <p class="hint" id="cnthint" style="margin-top:0">–</p>
     <div class="cfg">
       <div><label id="ll">LAMPEN</label><input id="c_lamps" type="number" min="1"></div>
       <div><label id="lc">SPULEN</label><input id="c_coils" type="number" min="1"></div>
@@ -311,6 +333,29 @@ function build(){
   $("#c_dw").value=cfg.dw.join(",");
   $("#c_pulse").value=cfg.pulse;
   $("#c_wd").value=cfg.wd;
+  $("#c_auto").value=cfg.auto;
+  applyConn();
+}
+
+/* ---- Verbindungszustand ---- */
+/* cfg.conn: 0=nicht verbunden 1=aktiv 2=DIP aus 3=Anforderung fehlt 4=sonstiges 5=keine Antwort */
+function applyConn(){
+  var bar=$("#connbar"),fromDev=(cfg.src==="fpga");
+  bar.className=(cfg.conn===1?"ok":(cfg.conn===0?"":"bad"));
+  bar.textContent=(cfg.conn===1?"● ":"▲ ")+cfg.connmsg.toUpperCase();
+  bar.onclick=(cfg.conn===1||cfg.conn===0)?null:function(){show("config")};
+
+  $("#conninfo").textContent=fromDev
+    ? "GERÄT: "+cfg.hw+" · FIRMWARE "+cfg.fwver+" · LISY-API "+cfg.apiver+" · SPIEL "+cfg.game
+    : cfg.connmsg;
+
+  /* Kommen die Anzahlen vom Gerät, darf man sie nicht von Hand verstellen —
+     sie beschreiben die tatsächliche Bestückung. */
+  $("#cnthint").textContent=fromDev
+    ? "VOM GERÄT GEMELDET (LISY 0x03-0x09) — NICHT ÄNDERBAR"
+    : "VON HAND EINGETRAGEN — GILT NUR, SOLANGE KEIN GERÄT ANTWORTET";
+  ["#c_lamps","#c_coils","#c_switches","#c_sounds","#c_displays","#c_dw"]
+    .forEach(function(s){$(s).readOnly=fromDev});
 }
 
 /* ---- Zustand (Lampen/Schalter/Displays) ---- */
@@ -333,10 +378,20 @@ $("#savecfg").onclick=function(){
   var q="lamps="+$("#c_lamps").value+"&coils="+$("#c_coils").value+
     "&switches="+$("#c_switches").value+"&sounds="+$("#c_sounds").value+
     "&displays="+$("#c_displays").value+"&dw="+encodeURIComponent($("#c_dw").value)+
-    "&pulse="+$("#c_pulse").value+"&wd="+$("#c_wd").value;
+    "&pulse="+$("#c_pulse").value+"&wd="+$("#c_wd").value+"&auto="+$("#c_auto").value;
   api("/api/config?"+q,function(){toast("GESPEICHERT");init()})};
 $("#doreset").onclick=function(){
   api("/api/reset",function(){toast("INIT/RESET GESENDET");poll()})};
+
+/* ---- Verbinden / Kontrolle zurueckgeben ---- */
+/* Beide Endpunkte liefern die frische Konfiguration gleich mit zurueck. */
+function connectCall(path,msg){
+  fetch(path,{method:"POST"}).then(function(r){return r.json()}).then(function(c){
+    cfg=c;build();toast(msg);
+    if(c.conn!==1)toast(c.connmsg.toUpperCase())})
+    .catch(function(){toast("KEINE VERBINDUNG")})}
+$("#doconnect").onclick=function(){connectCall("/api/connect","VERBINDE …")};
+$("#dodisconnect").onclick=function(){connectCall("/api/disconnect","KONTROLLE ZURÜCKGEGEBEN")};
 $("#savewifi").onclick=function(){
   var s=$("#w_ssid").value;if(!s){toast("SSID FEHLT");return}
   api("/api/wifi?ssid="+encodeURIComponent(s)+"&pass="+encodeURIComponent($("#w_pass").value),

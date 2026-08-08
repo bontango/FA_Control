@@ -10,6 +10,7 @@
 
 #include "app_config.h"
 #include "esp_app_desc.h"
+#include "fa_connect.h"
 #include "fw_update.h"
 #include "lisy.h"
 #include "wifi_mgr.h"
@@ -117,17 +118,40 @@ static esp_err_t config_get_handler(httpd_req_t *req)
     for (int i = 0; i < g_cfg.displays && i < CFG_MAX_DISPLAYS; i++) {
         p += snprintf(dw + p, sizeof(dw) - p, "%s%u", i ? "," : "", g_cfg.disp_width[i]);
     }
-    char buf[256];
+    const fa_conn_info_t *ci = fa_connect_info();
+    char buf[512];
     snprintf(buf, sizeof(buf),
              "{\"lamps\":%u,\"coils\":%u,\"switches\":%u,\"sounds\":%u,"
              "\"displays\":%u,\"dw\":[%s],\"wd\":%d,\"pulse\":%u,"
-             "\"maxl\":%d,\"maxc\":%d,\"maxs\":%d,\"maxo\":%d,\"maxd\":%d}",
+             "\"maxl\":%d,\"maxc\":%d,\"maxs\":%d,\"maxo\":%d,\"maxd\":%d,"
+             "\"auto\":%d,\"src\":\"%s\",\"conn\":%d,\"connmsg\":\"%s\","
+             "\"hw\":\"%s\",\"fwver\":\"%s\",\"apiver\":\"%s\",\"game\":\"%s\"}",
              g_cfg.lamps, g_cfg.coils, g_cfg.switches, g_cfg.sounds,
              g_cfg.displays, dw, g_cfg.watchdog_en ? 1 : 0, g_cfg.coil_pulse_ms,
              CFG_MAX_LAMPS, CFG_MAX_COILS, CFG_MAX_SWITCHES, CFG_MAX_SOUNDS,
-             CFG_MAX_DISPLAYS);
+             CFG_MAX_DISPLAYS,
+             g_cfg.auto_connect ? 1 : 0,
+             ci->counts_from_device ? "fpga" : "manual",
+             (int)ci->state, fa_connect_state_str(),
+             ci->hw, ci->fw_ver, ci->api_ver, ci->game);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
+}
+
+/* ---- API: Verbinden / Kontrolle zurueckgeben ----------------------------- */
+
+static esp_err_t connect_post_handler(httpd_req_t *req)
+{
+    fa_connect_run();
+    s_switches_initialized = false;
+    memset(s_disp_text, 0, sizeof(s_disp_text));
+    return config_get_handler(req);   /* gleich die frischen Werte zurueckliefern */
+}
+
+static esp_err_t disconnect_post_handler(httpd_req_t *req)
+{
+    fa_connect_release();
+    return config_get_handler(req);
 }
 
 static uint8_t clamp_u8(int v, int min, int max)
@@ -143,6 +167,7 @@ static uint8_t clamp_u8(int v, int min, int max)
 
 static esp_err_t config_post_handler(httpd_req_t *req)
 {
+    g_cfg.auto_connect = get_param_int(req, "auto", g_cfg.auto_connect ? 1 : 0) != 0;
     g_cfg.lamps    = clamp_u8(get_param_int(req, "lamps", g_cfg.lamps), 1, CFG_MAX_LAMPS);
     g_cfg.coils    = clamp_u8(get_param_int(req, "coils", g_cfg.coils), 1, CFG_MAX_COILS);
     g_cfg.switches = clamp_u8(get_param_int(req, "switches", g_cfg.switches), 1, CFG_MAX_SWITCHES);
@@ -386,6 +411,8 @@ esp_err_t web_server_start(void)
     const httpd_uri_t uris[] = {
         { .uri = "/api/config",  .method = HTTP_GET,  .handler = config_get_handler },
         { .uri = "/api/config",  .method = HTTP_POST, .handler = config_post_handler },
+        { .uri = "/api/connect", .method = HTTP_POST, .handler = connect_post_handler },
+        { .uri = "/api/disconnect", .method = HTTP_POST, .handler = disconnect_post_handler },
         { .uri = "/api/lamp",    .method = HTTP_POST, .handler = lamp_post_handler },
         { .uri = "/api/coil",    .method = HTTP_POST, .handler = coil_post_handler },
         { .uri = "/api/sound",   .method = HTTP_POST, .handler = sound_post_handler },

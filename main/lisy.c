@@ -260,3 +260,72 @@ int lisy_init_reset(void)
     ESP_LOGI(TAG, "Init/Reset -> %d", r);
     return r;
 }
+
+/* ---- Abfragen (Info-Gruppe 0..9) ---------------------------------------- */
+
+int lisy_get_byte(uint8_t cmd)
+{
+    return cmd_resp1(&cmd, 1);
+}
+
+int lisy_get_byte_p(uint8_t cmd, uint8_t param)
+{
+    uint8_t buf[2] = { cmd, param };
+    return cmd_resp1(buf, 2);
+}
+
+int lisy_get_2bytes(uint8_t cmd, uint8_t param, uint8_t *b1, uint8_t *b2)
+{
+    uint8_t buf[2] = { cmd, param };
+    uint8_t resp[2];
+
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    uart_flush_input(LISY_UART);
+    tx(buf, sizeof(buf));
+    int n = uart_read_bytes(LISY_UART, resp, 2, pdMS_TO_TICKS(RESP_TIMEOUT_MS));
+    xSemaphoreGive(s_mutex);
+
+    if (n != 2) {
+        return -1;
+    }
+    *b1 = resp[0];
+    *b2 = resp[1];
+    return 0;
+}
+
+int lisy_get_string(uint8_t cmd, char *out, size_t len)
+{
+    if (len == 0) {
+        return -1;
+    }
+    out[0] = '\0';
+
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    uart_flush_input(LISY_UART);
+    tx(&cmd, 1);
+
+    /* Bis zum NUL lesen, hoechstens len-1 Zeichen. Ein Timeout mittendrin
+     * beendet den String -- der Aufrufer sieht dann eine kuerzere Antwort. */
+    size_t p = 0;
+    int timeout = 0;
+    while (p < len - 1) {
+        uint8_t c;
+        if (uart_read_bytes(LISY_UART, &c, 1, pdMS_TO_TICKS(RESP_TIMEOUT_MS)) != 1) {
+            timeout = 1;
+            break;
+        }
+        if (c == 0) {
+            break;
+        }
+        if (c >= 0x20 && c < 0x7F) {
+            out[p++] = (char)c;
+        }
+    }
+    xSemaphoreGive(s_mutex);
+
+    out[p] = '\0';
+    if (timeout && p == 0) {
+        return -1;
+    }
+    return (int)p;
+}
