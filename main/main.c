@@ -30,7 +30,7 @@ void app_main(void)
     ESP_ERROR_CHECK(lisy_init());
 
     /* Beim Start wird bewusst nicht verbunden: solange niemand in der Oberflaeche
-     * "VERBINDEN" drueckt, gehoert der Flipper sich selbst. Watchdog und Pulszeit
+     * "CONNECT" drueckt, gehoert der Flipper sich selbst. Watchdog und Pulszeit
      * setzt fa_connect_run(), sobald die Gegenstelle die Kontrolle gewaehrt. */
 
     wifi_mgr_start();

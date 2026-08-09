@@ -72,6 +72,8 @@ static esp_err_t send_ok(httpd_req_t *req)
     return httpd_resp_sendstr(req, "OK");
 }
 
+/* Der Text landet per toast("ERROR: …") in der Weboberflaeche und ist damit
+ * Oberflaeche -- deshalb englisch, anders als die ESP_LOG-Texte daneben. */
 static esp_err_t send_err(httpd_req_t *req, const char *msg)
 {
     httpd_resp_set_status(req, "400 Bad Request");
@@ -176,7 +178,7 @@ static esp_err_t config_post_handler(httpd_req_t *req)
 
     esp_err_t err = app_config_save();
     if (err != ESP_OK) {
-        return send_err(req, "NVS-Fehler");
+        return send_err(req, "NVS error");
     }
     lisy_coil_apply_pulse_time(fa_connect_info()->coils, g_cfg.coil_pulse_ms);
     ESP_LOGI(TAG, "Spulen-Pulszeit gespeichert: %u ms", g_cfg.coil_pulse_ms);
@@ -193,7 +195,7 @@ static esp_err_t lamp_post_handler(httpd_req_t *req)
     int id = get_param_int(req, "id", -1);
     int on = get_param_int(req, "on", -1);
     if (id < 0 || id >= fa_connect_info()->lamps || on < 0) {
-        return send_err(req, "Parameter");
+        return send_err(req, "Bad parameter");
     }
     lisy_lamp_set((uint8_t)id, on != 0);
     return send_ok(req);
@@ -203,7 +205,7 @@ static esp_err_t coil_post_handler(httpd_req_t *req)
 {
     int id = get_param_int(req, "id", -1);
     if (id < 0 || id >= fa_connect_info()->coils) {
-        return send_err(req, "Parameter");
+        return send_err(req, "Bad parameter");
     }
     lisy_coil_pulse((uint8_t)id);
     return send_ok(req);
@@ -214,7 +216,7 @@ static esp_err_t sound_post_handler(httpd_req_t *req)
     int id = get_param_int(req, "id", -1);
     int on = get_param_int(req, "on", 1);
     if (id < 0 || id >= fa_connect_info()->sounds) {
-        return send_err(req, "Parameter");
+        return send_err(req, "Bad parameter");
     }
     if (on) {
         lisy_sound_play(1, (uint8_t)id);
@@ -231,7 +233,7 @@ static esp_err_t display_post_handler(httpd_req_t *req)
     char text[CFG_MAX_DISP_W + 1] = "";
     get_param(req, "text", text, sizeof(text));
     if (id < 0 || id >= ci->displays) {
-        return send_err(req, "Parameter");
+        return send_err(req, "Bad parameter");
     }
     lisy_display_set((uint8_t)id, text, ci->disp_width[id]);
     strlcpy(s_disp_text[id], text, sizeof(s_disp_text[id]));
@@ -305,16 +307,16 @@ static esp_err_t status_get_handler(httpd_req_t *req)
 static esp_err_t fwlist_get_handler(httpd_req_t *req)
 {
     if (wifi_mgr_get_mode() == WIFI_MGR_MODE_AP) {
-        return send_err(req, "Kein Internet im AP-Modus");
+        return send_err(req, "No internet in AP mode");
     }
     char *buf = malloc(1536);
     if (!buf) {
-        return send_err(req, "Kein Speicher");
+        return send_err(req, "Out of memory");
     }
     esp_err_t err = fw_update_list_json(buf, 1536);
     if (err != ESP_OK) {
         free(buf);
-        return send_err(req, "Server nicht erreichbar");
+        return send_err(req, "Server unreachable");
     }
     httpd_resp_set_type(req, "application/json");
     esp_err_t ret = httpd_resp_sendstr(req, buf);
@@ -325,18 +327,18 @@ static esp_err_t fwlist_get_handler(httpd_req_t *req)
 static esp_err_t fwupdate_post_handler(httpd_req_t *req)
 {
     if (wifi_mgr_get_mode() == WIFI_MGR_MODE_AP) {
-        return send_err(req, "Kein Internet im AP-Modus");
+        return send_err(req, "No internet in AP mode");
     }
     char file[64];
     if (!get_param(req, "file", file, sizeof(file))) {
-        return send_err(req, "Parameter file fehlt");
+        return send_err(req, "Parameter file missing");
     }
     esp_err_t err = fw_update_start(file);
     if (err == ESP_ERR_INVALID_STATE) {
-        return send_err(req, "Update laeuft bereits");
+        return send_err(req, "Update already running");
     }
     if (err != ESP_OK) {
-        return send_err(req, "Ungueltiger Dateiname");
+        return send_err(req, "Invalid file name");
     }
     return send_ok(req);
 }
@@ -365,12 +367,12 @@ static esp_err_t wifi_post_handler(httpd_req_t *req)
 {
     char ssid[33], pass[65] = "";
     if (!get_param(req, "ssid", ssid, sizeof(ssid)) || ssid[0] == '\0') {
-        return send_err(req, "SSID fehlt");
+        return send_err(req, "SSID missing");
     }
     get_param(req, "pass", pass, sizeof(pass));
 
     if (wifi_mgr_set_credentials(ssid, pass) != ESP_OK) {
-        return send_err(req, "NVS-Fehler");
+        return send_err(req, "NVS error");
     }
     ESP_LOGI(TAG, "WLAN-Credentials gespeichert, Neustart in 1 s");
     send_ok(req);

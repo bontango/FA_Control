@@ -113,6 +113,7 @@ esp_err_t fw_update_list_json(char *out, size_t out_len)
 
 /* ---- Update --------------------------------------------------------------- */
 
+/* msg geht per /api/fwstatus in die Weboberflaeche -- deshalb englisch. */
 static void set_error(const char *msg)
 {
     strlcpy(s_err, msg, sizeof(s_err));
@@ -155,14 +156,14 @@ static void ota_task(void *arg)
 
     if (err != ESP_OK || !esp_https_ota_is_complete_data_received(handle)) {
         esp_https_ota_abort(handle);
-        set_error(err != ESP_OK ? esp_err_to_name(err) : "Download unvollstaendig");
+        set_error(err != ESP_OK ? esp_err_to_name(err) : "Download incomplete");
         vTaskDelete(NULL);
         return;
     }
 
     err = esp_https_ota_finish(handle);  /* validiert Image + setzt Boot-Partition */
     if (err != ESP_OK) {
-        set_error(err == ESP_ERR_OTA_VALIDATE_FAILED ? "Image ungueltig"
+        set_error(err == ESP_ERR_OTA_VALIDATE_FAILED ? "Invalid image"
                                                      : esp_err_to_name(err));
         vTaskDelete(NULL);
         return;

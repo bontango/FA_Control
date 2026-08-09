@@ -23,15 +23,18 @@ const fa_conn_info_t *fa_connect_info(void)
     return &s_info;
 }
 
+/* Diese Texte gehen als "connmsg" ueber /api/config direkt ins Verbindungsbanner
+ * der Weboberflaeche -- sie sind Oberflaeche und deshalb englisch, obwohl sie hier
+ * in einer C-Datei stehen. */
 const char *fa_connect_state_str(void)
 {
     switch (s_info.state) {
-        case FA_CONN_ACTIVE:       return "Kontrolle aktiv";
-        case FA_CONN_DENIED_DIP:   return "Kontrolle verweigert - Option-DIP 4 auf ON stellen";
-        case FA_CONN_DENIED_REQ:   return "Kontrolle verweigert - Anforderungsleitung (GPIO10) kam nicht an";
-        case FA_CONN_DENIED_OTHER: return "Kontrolle verweigert";
-        case FA_CONN_NO_ANSWER:    return "Keine Antwort - Verkabelung und Stromversorgung pruefen";
-        default:                   return "Nicht verbunden";
+        case FA_CONN_ACTIVE:       return "Control granted";
+        case FA_CONN_DENIED_DIP:   return "Control denied - set option DIP 4 to ON";
+        case FA_CONN_DENIED_REQ:   return "Control denied - request line (GPIO10) not seen";
+        case FA_CONN_DENIED_OTHER: return "Control denied";
+        case FA_CONN_NO_ANSWER:    return "No answer - check wiring and power";
+        default:                   return "Not connected";
     }
 }
 

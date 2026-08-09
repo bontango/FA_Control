@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -52,7 +52,9 @@ h1 small{font-size:.6rem;letter-spacing:.2em;color:var(--dim);display:block}
   border:1px dashed var(--amber);color:var(--amber);
   font-size:.75rem;cursor:pointer;letter-spacing:.05em;
 }
-/* Verbindungsbanner: zeigt, ob die Flipper-Seite uns die Kontrolle gibt */
+/* Verbindungsbanner: zeigt, ob die Flipper-Seite uns die Kontrolle gibt.
+   Die Beschriftungen der Oberflaeche sind englisch -- sie werden in
+   docs/USER_MANUAL.md und docs/BEDIENUNGSANLEITUNG.md woertlich zitiert. */
 #connbar{
   margin:1rem 1.2rem 0;padding:.6rem .8rem;border:1px solid var(--line);
   font-size:.75rem;letter-spacing:.05em;color:var(--dim);
@@ -176,27 +178,27 @@ legend{font-size:.72rem;color:var(--amber);padding:0 .5rem;letter-spacing:.2em}
 <body>
 <header>
   <h1>FA·CONTROL<small>LISY PINBALL TERMINAL</small></h1>
-  <span id="status">VERBINDE …</span>
+  <span id="status">CONNECTING …</span>
 </header>
-<div id="apwarn">▲ AP-MODUS — HIER KLICKEN UM WLAN EINZURICHTEN</div>
-<div id="connbar">VERBINDUNG WIRD GEPRÜFT …</div>
+<div id="apwarn">▲ AP MODE — CLICK HERE TO SET UP WI-FI</div>
+<div id="connbar">CHECKING CONNECTION …</div>
 <main>
 
 <div id="home">
-  <fieldset><legend>VERBINDUNG</legend>
+  <fieldset><legend>CONNECTION</legend>
     <p class="hint" id="conninfo" style="margin-top:0">–</p>
     <div class="row" style="margin-top:0">
-      <button class="btn" id="doconnect">VERBINDEN</button>
-      <button class="btn warn" id="dodisconnect">KONTROLLE ZURÜCKGEBEN</button>
-      <button class="btn warn" id="doreset">NEU INITIALISIEREN (0x64)</button>
+      <button class="btn" id="doconnect">CONNECT</button>
+      <button class="btn warn" id="dodisconnect">RELEASE CONTROL</button>
+      <button class="btn warn" id="doreset">RE-INITIALIZE (0x64)</button>
     </div>
   </fieldset>
 
-  <fieldset id="devinfo" style="display:none"><legend>GEMELDETE BESTÜCKUNG</legend>
+  <fieldset id="devinfo" style="display:none"><legend>REPORTED HARDWARE</legend>
     <div class="vals">
-      <div class="val"><span>LAMPEN</span><b id="v_lamps">–</b></div>
-      <div class="val"><span>SPULEN</span><b id="v_coils">–</b></div>
-      <div class="val"><span>SCHALTER</span><b id="v_switches">–</b></div>
+      <div class="val"><span>LAMPS</span><b id="v_lamps">–</b></div>
+      <div class="val"><span>COILS</span><b id="v_coils">–</b></div>
+      <div class="val"><span>SWITCHES</span><b id="v_switches">–</b></div>
       <div class="val"><span>SOUNDS</span><b id="v_sounds">–</b></div>
       <div class="val"><span>DISPLAYS</span><b id="v_displays">–</b></div>
     </div>
@@ -206,47 +208,47 @@ legend{font-size:.72rem;color:var(--amber);padding:0 .5rem;letter-spacing:.2em}
 
   <!-- 01-05 starten gesperrt und werden erst durch applyConn() freigegeben -->
   <div id="menu">
-    <button class="tile" data-s="lamps" disabled><span class="no">01</span><span class="nm">LAMPEN</span><span class="ds">EIN/AUS SCHALTEN</span></button>
-    <button class="tile" data-s="coils" disabled><span class="no">02</span><span class="nm">SPULEN</span><span class="ds">PULS AUSLÖSEN · PULSZEIT</span></button>
-    <button class="tile" data-s="switches" disabled><span class="no">03</span><span class="nm">SCHALTER</span><span class="ds">STATUS (NUR LESEN)</span></button>
-    <button class="tile" data-s="sounds" disabled><span class="no">04</span><span class="nm">SOUND</span><span class="ds">ABSPIELEN / STOPP</span></button>
-    <button class="tile" data-s="disps" disabled><span class="no">05</span><span class="nm">DISPLAYS</span><span class="ds">7-SEGMENT-ANZEIGEN</span></button>
-    <button class="tile" data-s="wifi"><span class="no">06</span><span class="nm">WLAN</span><span class="ds">NETZ · FIRMWARE</span></button>
+    <button class="tile" data-s="lamps" disabled><span class="no">01</span><span class="nm">LAMPS</span><span class="ds">TURN ON / OFF</span></button>
+    <button class="tile" data-s="coils" disabled><span class="no">02</span><span class="nm">COILS</span><span class="ds">FIRE PULSE · PULSE TIME</span></button>
+    <button class="tile" data-s="switches" disabled><span class="no">03</span><span class="nm">SWITCHES</span><span class="ds">STATUS (READ ONLY)</span></button>
+    <button class="tile" data-s="sounds" disabled><span class="no">04</span><span class="nm">SOUND</span><span class="ds">PLAY / STOP</span></button>
+    <button class="tile" data-s="disps" disabled><span class="no">05</span><span class="nm">DISPLAYS</span><span class="ds">7-SEGMENT DISPLAYS</span></button>
+    <button class="tile" data-s="wifi"><span class="no">06</span><span class="nm">WI-FI</span><span class="ds">NETWORK · FIRMWARE</span></button>
   </div>
 </div>
 
-<section id="lamps"><div class="shead"><button class="back">◀ MENÜ</button><h2>LAMPEN</h2></div>
-  <p class="hint">KLICK = LAMPE EIN/AUS (LISY 0x0B/0x0C)</p><div class="grid"></div></section>
+<section id="lamps"><div class="shead"><button class="back">◀ MENU</button><h2>LAMPS</h2></div>
+  <p class="hint">CLICK = LAMP ON/OFF (LISY 0x0B/0x0C)</p><div class="grid"></div></section>
 
-<section id="coils"><div class="shead"><button class="back">◀ MENÜ</button><h2>SPULEN</h2></div>
-  <p class="hint">KLICK = PULS (LISY 0x17) — KEIN DAUERSTROM</p><div class="grid"></div>
-  <fieldset style="margin-top:1.2rem"><legend>PULSZEIT</legend>
-    <p class="hint" style="margin-top:0">GILT FÜR ALLE SPULEN (LISY 0x18) — WIRD GESPEICHERT</p>
+<section id="coils"><div class="shead"><button class="back">◀ MENU</button><h2>COILS</h2></div>
+  <p class="hint">CLICK = PULSE (LISY 0x17) — NEVER ENERGIZED CONTINUOUSLY</p><div class="grid"></div>
+  <fieldset style="margin-top:1.2rem"><legend>PULSE TIME</legend>
+    <p class="hint" style="margin-top:0">APPLIES TO ALL COILS (LISY 0x18) — IS STORED</p>
     <div class="row" style="margin-top:0">
-      <label style="font-size:.68rem;color:var(--dim);letter-spacing:.08em">MILLISEKUNDEN</label>
+      <label style="font-size:.68rem;color:var(--dim);letter-spacing:.08em">MILLISECONDS</label>
       <input id="c_pulse" type="number" min="1" max="255" style="width:6rem">
-      <button class="btn" id="savepulse">ÜBERNEHMEN</button>
+      <button class="btn" id="savepulse">APPLY</button>
     </div>
   </fieldset></section>
 
-<section id="switches"><div class="shead"><button class="back">◀ MENÜ</button><h2>SCHALTER</h2></div>
-  <p class="hint">LIVE-STATUS, AKTUALISIERUNG 1×/S (LISY 0x29)</p><div class="grid"></div></section>
+<section id="switches"><div class="shead"><button class="back">◀ MENU</button><h2>SWITCHES</h2></div>
+  <p class="hint">LIVE STATUS, REFRESHED 1×/S (LISY 0x29)</p><div class="grid"></div></section>
 
-<section id="sounds"><div class="shead"><button class="back">◀ MENÜ</button><h2>SOUND</h2></div>
-  <p class="hint">KLICK = ABSPIELEN (0x32) · ERNEUT = STOPP (0x33)</p><div class="grid"></div></section>
+<section id="sounds"><div class="shead"><button class="back">◀ MENU</button><h2>SOUND</h2></div>
+  <p class="hint">CLICK = PLAY (0x32) · AGAIN = STOP (0x33)</p><div class="grid"></div></section>
 
-<section id="disps"><div class="shead"><button class="back">◀ MENÜ</button><h2>DISPLAYS</h2></div>
-  <p class="hint">ZIFFERN EINGEBEN UND SENDEN (BCD7, RECHTSBÜNDIG)</p><div id="dlist"></div></section>
+<section id="disps"><div class="shead"><button class="back">◀ MENU</button><h2>DISPLAYS</h2></div>
+  <p class="hint">ENTER DIGITS AND SEND (BCD7, RIGHT-ALIGNED)</p><div id="dlist"></div></section>
 
-<section id="wifi"><div class="shead"><button class="back">◀ MENÜ</button><h2>WLAN</h2></div>
-  <fieldset><legend>NETZ</legend>
+<section id="wifi"><div class="shead"><button class="back">◀ MENU</button><h2>WI-FI</h2></div>
+  <fieldset><legend>NETWORK</legend>
     <div class="cfg">
       <div><label>SSID</label><input id="w_ssid" maxlength="32"></div>
-      <div><label>PASSWORT</label><input id="w_pass" type="password" maxlength="64"></div>
+      <div><label>PASSWORD</label><input id="w_pass" type="password" maxlength="64"></div>
     </div>
     <div class="row">
-      <button class="btn" id="savewifi">SPEICHERN + NEUSTART</button>
-      <span class="hint" style="margin:0">DANACH MIT NEUEM NETZ VERBINDEN: http://fa-control.local</span>
+      <button class="btn" id="savewifi">SAVE + REBOOT</button>
+      <span class="hint" style="margin:0">THEN JOIN THE NEW NETWORK: http://fa-control.local</span>
     </div>
   </fieldset>
   <fieldset><legend>FIRMWARE</legend>
@@ -254,9 +256,9 @@ legend{font-size:.72rem;color:var(--amber);padding:0 .5rem;letter-spacing:.2em}
       <span class="hint" id="fwver" style="margin:0">VERSION: –</span>
     </div>
     <div class="row">
-      <button class="btn" id="fwfetch">VERSIONEN LADEN</button>
+      <button class="btn" id="fwfetch">LOAD VERSIONS</button>
       <select id="fwsel" style="display:none"></select>
-      <button class="btn warn" id="fwgo" style="display:none">UPDATE INSTALLIEREN</button>
+      <button class="btn warn" id="fwgo" style="display:none">INSTALL UPDATE</button>
     </div>
     <div class="row"><span class="hint" id="fwstat" style="margin:0"></span></div>
   </fieldset>
@@ -272,8 +274,8 @@ var cfg=null,pollTimer=null,homeTimer=null;
 function toast(m){var t=$("#toast");t.textContent=m;t.style.display="block";
   clearTimeout(t._h);t._h=setTimeout(function(){t.style.display="none"},1800)}
 function api(p,cb){fetch(p,{method:"POST"}).then(function(r){
-  if(!r.ok)r.text().then(function(x){toast("FEHLER: "+x)});else if(cb)cb(r)})
-  .catch(function(){toast("KEINE VERBINDUNG")})}
+  if(!r.ok)r.text().then(function(x){toast("ERROR: "+x.toUpperCase())});else if(cb)cb(r)})
+  .catch(function(){toast("NO CONNECTION")})}
 function getj(p,cb){fetch(p).then(function(r){return r.json()}).then(cb)
   .catch(function(){})}
 
@@ -324,7 +326,7 @@ function build(){
   for(var d=0;d<cfg.displays;d++){(function(d){
     var w=cfg.dw[d]||6;
     var div=document.createElement("div");div.className="disp";
-    div.innerHTML='<label>DISPLAY '+d+' ('+w+'-STELLIG)</label>'+
+    div.innerHTML='<label>DISPLAY '+d+' ('+w+' DIGITS)</label>'+
       '<span class="seg"><span class="gh">'+"8".repeat(w)+'</span><span class="vl"></span></span>'+
       '<input size="'+(w+2)+'" maxlength="'+w+'" pattern="[0-9 ]*" inputmode="numeric">'+
       '<button class="btn">SENDEN</button>';
@@ -332,7 +334,7 @@ function build(){
     var send=function(){
       var v=inp.value.replace(/[^0-9 ]/g,"");
       api("/api/display?id="+d+"&text="+encodeURIComponent(v),function(){
-        vl.textContent=v;toast("DISPLAY "+d+" GESENDET")})};
+        vl.textContent=v;toast("DISPLAY "+d+" SENT")})};
     div.querySelector(".btn").onclick=send;
     inp.onkeydown=function(e){if(e.key==="Enter")send()};
     dl.appendChild(div)})(d)}
@@ -348,8 +350,8 @@ function applyConn(){
   bar.textContent=(live?"● ":"▲ ")+cfg.connmsg.toUpperCase();
 
   $("#conninfo").textContent=live
-    ? "GERÄT: "+cfg.hw+" · FIRMWARE "+cfg.fwver+" · LISY-API "+cfg.apiver+" · SPIEL "+cfg.game
-    : cfg.connmsg.toUpperCase()+" — ZUM STEUERN ERST VERBINDEN";
+    ? "DEVICE: "+cfg.hw+" · FIRMWARE "+cfg.fwver+" · LISY API "+cfg.apiver+" · GAME "+cfg.game
+    : cfg.connmsg.toUpperCase()+" — CONNECT FIRST TO TAKE CONTROL";
   $("#doconnect").disabled=live;
   $("#dodisconnect").disabled=!live;
   $("#doreset").disabled=!live;
@@ -363,9 +365,9 @@ function applyConn(){
     $("#v_switches").textContent=cfg.switches;
     $("#v_sounds").textContent=cfg.sounds;
     $("#v_displays").textContent=cfg.displays;
-    $("#v_dw").textContent="STELLEN JE DISPLAY: "+(cfg.dw.length?cfg.dw.join(" · "):"–");
+    $("#v_dw").textContent="DIGITS PER DISPLAY: "+(cfg.dw.length?cfg.dw.join(" · "):"–");
     $("#v_wd").textContent="WATCHDOG (0x65 / 500 MS): "+
-      (cfg.wd?"LÄUFT":"AUS")+" · LETZTE ANTWORT "+cfg.wdlast;
+      (cfg.wd?"RUNNING":"OFF")+" · LAST REPLY "+cfg.wdlast;
   }
 
   /* Steuerungskacheln 01-05 nur bei gewaehrter Kontrolle */
@@ -400,7 +402,7 @@ function poll(){getj("/api/state",applyState)}
 
 /* ---- Spulen-Pulszeit ---- */
 $("#savepulse").onclick=function(){
-  api("/api/config?pulse="+$("#c_pulse").value,function(){toast("PULSZEIT ÜBERNOMMEN")})};
+  api("/api/config?pulse="+$("#c_pulse").value,function(){toast("PULSE TIME APPLIED")})};
 
 /* ---- Verbinden / Kontrolle zurueckgeben / Neu initialisieren ---- */
 /* Connect und Disconnect liefern die frische Konfiguration gleich mit zurueck. */
@@ -408,50 +410,50 @@ function connectCall(path,msg){
   fetch(path,{method:"POST"}).then(function(r){return r.json()}).then(function(c){
     cfg=c;build();show(null);toast(msg);
     if(c.conn!==1)toast(c.connmsg.toUpperCase())})
-    .catch(function(){toast("KEINE VERBINDUNG")})}
-$("#doconnect").onclick=function(){connectCall("/api/connect","VERBINDE …")};
-$("#dodisconnect").onclick=function(){connectCall("/api/disconnect","KONTROLLE ZURÜCKGEGEBEN")};
+    .catch(function(){toast("NO CONNECTION")})}
+$("#doconnect").onclick=function(){connectCall("/api/connect","CONNECTING …")};
+$("#dodisconnect").onclick=function(){connectCall("/api/disconnect","CONTROL RELEASED")};
 /* 0x64 im laufenden Betrieb: die Gegenstelle synchronisiert sich neu. Antwortet sie
    mit etwas anderem als 0, haben wir die Kontrolle verloren -- das muss man sehen. */
 $("#doreset").onclick=function(){
   fetch("/api/reset",{method:"POST"}).then(function(r){return r.json()}).then(function(j){
-    toast(j.result===0?"INIT/RESET OK":"INIT/RESET ABGELEHNT (CODE "+j.result+") — NEU VERBINDEN");
+    toast(j.result===0?"INIT/RESET OK":"INIT/RESET REJECTED (CODE "+j.result+") — RECONNECT");
     refreshConn()})
-    .catch(function(){toast("KEINE VERBINDUNG")})};
+    .catch(function(){toast("NO CONNECTION")})};
 $("#savewifi").onclick=function(){
-  var s=$("#w_ssid").value;if(!s){toast("SSID FEHLT");return}
+  var s=$("#w_ssid").value;if(!s){toast("SSID MISSING");return}
   api("/api/wifi?ssid="+encodeURIComponent(s)+"&pass="+encodeURIComponent($("#w_pass").value),
-    function(){toast("GESPEICHERT — NEUSTART …")})};
+    function(){toast("SAVED — REBOOTING …")})};
 
 /* ---- Firmware-Update (OTA von lisy.dev) ---- */
 $("#fwfetch").onclick=function(){
-  $("#fwstat").textContent="LADE LISTE VON LISY.DEV …";
+  $("#fwstat").textContent="LOADING LIST FROM LISY.DEV …";
   fetch("/api/fwlist").then(function(r){
     if(!r.ok)return r.text().then(function(t){throw new Error(t)});
     return r.json()}).then(function(j){
     var sel=$("#fwsel");sel.innerHTML="";
-    if(!j.files.length){$("#fwstat").textContent="KEINE DATEIEN GEFUNDEN";return}
+    if(!j.files.length){$("#fwstat").textContent="NO FILES FOUND";return}
     j.files.forEach(function(f){
       var o=document.createElement("option");o.value=f;o.textContent=f;
       sel.appendChild(o)});
     sel.style.display="inline-block";$("#fwgo").style.display="inline-block";
-    $("#fwstat").textContent=j.files.length+" VERSION(EN) VERFÜGBAR"
-  }).catch(function(e){$("#fwstat").textContent="FEHLER: "+e.message})};
+    $("#fwstat").textContent=j.files.length+" VERSION(S) AVAILABLE"
+  }).catch(function(e){$("#fwstat").textContent="ERROR: "+e.message.toUpperCase()})};
 $("#fwgo").onclick=function(){
   var f=$("#fwsel").value;if(!f)return;
-  if(!confirm("Firmware "+f+" installieren?"))return;
+  if(!confirm("Install firmware "+f+"?"))return;
   api("/api/fwupdate?file="+encodeURIComponent(f),function(){
     $("#fwgo").disabled=true;fwPoll()})};
 function fwPoll(){
   getj("/api/fwstatus",function(s){
     if(s.state==="running"){
-      $("#fwstat").textContent="UPDATE LÄUFT … "+s.pct+" %";
+      $("#fwstat").textContent="UPDATE RUNNING … "+s.pct+" %";
       setTimeout(fwPoll,1000)}
     else if(s.state==="ok"){
-      $("#fwstat").textContent="ERFOLGREICH — NEUSTART, SEITE LÄDT GLEICH NEU …";
+      $("#fwstat").textContent="SUCCESS — REBOOTING, PAGE WILL RELOAD SHORTLY …";
       setTimeout(function(){location.reload()},10000)}
     else if(s.state==="error"){
-      $("#fwstat").textContent="FEHLGESCHLAGEN: "+s.msg;
+      $("#fwstat").textContent="FAILED: "+s.msg.toUpperCase();
       $("#fwgo").disabled=false}
     else setTimeout(fwPoll,1000)})}
 
@@ -459,13 +461,13 @@ function fwPoll(){
 function init(){
   getj("/api/config",function(c){cfg=c;build()});
   getj("/api/status",function(s){
-    $("#status").innerHTML="V<b>"+s.ver+"</b> · WLAN <b>"+s.mode.toUpperCase()+
+    $("#status").innerHTML="V<b>"+s.ver+"</b> · WI-FI <b>"+s.mode.toUpperCase()+
       "</b> · IP <b>"+s.ip+"</b>";
-    $("#fwver").textContent="INSTALLIERTE VERSION: "+s.ver;
+    $("#fwver").textContent="INSTALLED VERSION: "+s.ver;
     if(s.mode==="ap"){var w=$("#apwarn");w.style.display="block";
       w.onclick=function(){show("wifi")};
       $("#fwfetch").disabled=true;
-      $("#fwstat").textContent="IM AP-MODUS NICHT VERFÜGBAR (KEIN INTERNET)"}})}
+      $("#fwstat").textContent="NOT AVAILABLE IN AP MODE (NO INTERNET)"}})}
 init();
 show(null);
 </script>
