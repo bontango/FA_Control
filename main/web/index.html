@@ -329,7 +329,7 @@ function build(){
     div.innerHTML='<label>DISPLAY '+d+' ('+w+' DIGITS)</label>'+
       '<span class="seg"><span class="gh">'+"8".repeat(w)+'</span><span class="vl"></span></span>'+
       '<input size="'+(w+2)+'" maxlength="'+w+'" pattern="[0-9 ]*" inputmode="numeric">'+
-      '<button class="btn">SENDEN</button>';
+      '<button class="btn">SEND</button>';
     var inp=div.querySelector("input"),vl=div.querySelector(".vl");
     var send=function(){
       var v=inp.value.replace(/[^0-9 ]/g,"");
