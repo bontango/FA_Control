@@ -48,8 +48,8 @@ void lisy_lamp_set(uint8_t idx, bool on);
 const uint8_t *lisy_lamp_bitmap(void);
 void lisy_lamp_bitmap_clear(void);
 
-/* Spulen */
-void lisy_coil_pulse(uint8_t idx);
+/* Spulen -- Nummern 1-basiert (LISY-Konvention), anders als Lampen/Sounds */
+void lisy_coil_pulse(uint8_t no);
 void lisy_coil_apply_pulse_time(uint8_t count, uint8_t ms);
 
 /* Sound */

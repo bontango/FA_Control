@@ -167,9 +167,16 @@ watch which one stays dark in the cabinet.
 
 ### 02 · COILS
 
-A grid with one tile per coil. **One click fires a single pulse** — the tile flashes
-briefly. Coils are only ever pulsed and never energized continuously; that protects them
-from burning out.
+A grid with one tile per coil, **numbered from 1 up** — unlike lamps, switches and sounds,
+which start at 0. That is how the LISY protocol counts coils and how the schematic names
+them: tile 1 is driver Q1, tile 20 is driver Q20. What comes after that depends on the
+machine; on AtariFA it is the coin counter and the coin door lockout coil.
+
+**One click fires a single pulse** — the tile flashes briefly. Coils are only ever pulsed
+and never energized continuously; that protects them from burning out.
+
+> Coils start at 1 only **from FA_Control 1.16 together with AtariFA 0.2.0**. If either
+> side is older, the coil one position off will fire — update both together.
 
 Below, **PULSE TIME** holds the pulse duration in **MILLISECONDS**. It applies to all coils
 together. Change the value and press **APPLY** — it is stored and survives the next power

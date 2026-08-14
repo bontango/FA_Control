@@ -204,7 +204,9 @@ static esp_err_t lamp_post_handler(httpd_req_t *req)
 static esp_err_t coil_post_handler(httpd_req_t *req)
 {
     int id = get_param_int(req, "id", -1);
-    if (id < 0 || id >= fa_connect_info()->coils) {
+    /* Spulen zaehlen ab 1 (LISY-Konvention, = Treiber Q1..Qn im Schaltplan) --
+     * anders als Lampen, Schalter und Sounds. */
+    if (id < 1 || id > fa_connect_info()->coils) {
         return send_err(req, "Bad parameter");
     }
     lisy_coil_pulse((uint8_t)id);

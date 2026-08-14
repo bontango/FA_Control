@@ -145,18 +145,22 @@ void lisy_lamp_bitmap_clear(void)
     memset(s_lamp_bitmap, 0, sizeof(s_lamp_bitmap));
 }
 
-/* ---- Spulen ------------------------------------------------------------- */
+/* ---- Spulen -------------------------------------------------------------
+ * Spulennummern gehen 1-basiert ueber die Leitung -- so zaehlt LISY sie
+ * (lisy_5_28/src/lisy/lisy_w.c: "sol number starts with 1"), und so heissen die
+ * Treiber im Atari-Schaltplan (Q1..Qn). Lampen, Schalter und Sounds bleiben
+ * 0-basiert. */
 
-void lisy_coil_pulse(uint8_t idx)
+void lisy_coil_pulse(uint8_t no)
 {
-    uint8_t buf[2] = { LISY_CMD_COIL_PULSE, idx };
+    uint8_t buf[2] = { LISY_CMD_COIL_PULSE, no };
     cmd_no_resp(buf, 2);
 }
 
 void lisy_coil_apply_pulse_time(uint8_t count, uint8_t ms)
 {
-    for (uint8_t i = 0; i < count; i++) {
-        uint8_t buf[3] = { LISY_CMD_COIL_PULSETIME, i, ms };
+    for (uint8_t no = 1; no <= count; no++) {
+        uint8_t buf[3] = { LISY_CMD_COIL_PULSETIME, no, ms };
         cmd_no_resp(buf, 3);
     }
     ESP_LOGI(TAG, "Pulszeit %u ms fuer %u Spulen gesetzt", ms, count);

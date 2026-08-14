@@ -296,15 +296,19 @@ document.querySelectorAll(".tile").forEach(function(t){
 document.querySelectorAll(".back").forEach(function(b){
   b.onclick=function(){show(null)}});
 
-/* ---- Grids ---- */
-function mkgrid(sel,n,icon,cls,onclick){
-  var g=$(sel+" .grid");g.innerHTML="";
-  for(var i=0;i<n;i++){(function(i){
+/* ---- Grids ----
+   base = Nummer der ersten Kachel. Spulen zaehlen ab 1 (LISY zaehlt sie so, und es
+   sind die Treiber Q1..Q20 des Schaltplans), Lampen/Schalter/Sounds ab 0. Die Zahl
+   auf der Kachel IST die Nummer, die auch ueber die Leitung geht — nicht bloss ein
+   Anzeige-Offset. */
+function mkgrid(sel,n,icon,cls,onclick,base){
+  var g=$(sel+" .grid");g.innerHTML="";var b=base||0;
+  for(var i=0;i<n;i++){(function(no){
     var c=document.createElement("button");
     c.className="cell"+(cls?" "+cls:"");
-    c.innerHTML="<i>"+icon+"</i>"+i;
-    if(onclick)c.onclick=function(){onclick(i,c)};
-    g.appendChild(c)})(i)}
+    c.innerHTML="<i>"+icon+"</i>"+no;
+    if(onclick)c.onclick=function(){onclick(no,c)};
+    g.appendChild(c)})(i+b)}
 }
 /* Ohne Verbindung meldet der Server ueberall 0 — die Grids bleiben dann leer,
    ganz ohne Sonderfall. */
@@ -314,7 +318,7 @@ function build(){
     api("/api/lamp?id="+i+"&on="+(on?1:0),function(){c.classList.toggle("on",on)})});
   mkgrid("#coils",cfg.coils,"⚡",null,function(i,c){
     api("/api/coil?id="+i,function(){
-      c.classList.remove("fire");void c.offsetWidth;c.classList.add("fire")})});
+      c.classList.remove("fire");void c.offsetWidth;c.classList.add("fire")})},1);
   mkgrid("#switches",cfg.switches,"▣","sw",null);
   mkgrid("#sounds",cfg.sounds,"♪",null,function(i,c){
     var on=!c.classList.contains("on");

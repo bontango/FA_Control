@@ -191,6 +191,11 @@ Opcodes in [`main/lisy.h`](../main/lisy.h), maxima in
 | Sound | 255 | `0x32` play (track 1), `0x33` stop |
 | Displays | 7 | `0x1E + index`, BCD7 encoded, right-aligned, blank = `0x0F` |
 
+**Coil numbers are 1-based on the wire** (`main/lisy.c`), every other category is 0-based.
+That is the LISY convention (`lisy_5_28/src/lisy/lisy_w.c`: "sol number starts with 1")
+and it matches the driver names of the schematic, Q1..Qn. Since FA_Control 1.16; the
+counterpart has to agree, on AtariFA that means SW 0.2.0 or newer.
+
 Info group:
 
 | Opcode | Returns |

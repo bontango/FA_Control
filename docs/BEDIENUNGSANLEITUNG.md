@@ -171,9 +171,19 @@ zuschauen, welche im Gehäuse dunkel bleibt.
 
 ### 02 · COILS
 
-Ein Raster mit einer Kachel je Spule. **Ein Klick löst einen einzelnen Impuls aus** — die
-Kachel blitzt kurz auf. Spulen werden ausschließlich gepulst und nie dauerhaft
-eingeschaltet; das schützt sie vor dem Durchbrennen.
+Ein Raster mit einer Kachel je Spule, **ab 1 durchnummeriert** — anders als Lampen,
+Schalter und Sounds, die bei 0 anfangen. So zählt das LISY-Protokoll die Spulen, und so
+zählt sie der Schaltplan: Kachel 1 ist der Treiber Q1, Kachel 20 der Treiber Q20. Was
+danach kommt, hängt an der Anlage; bei AtariFA sind es der Münzzähler und die Sperrspule
+der Münztür.
+
+**Ein Klick löst einen einzelnen Impuls aus** — die Kachel blitzt kurz auf. Spulen werden
+ausschließlich gepulst und nie dauerhaft eingeschaltet; das schützt sie vor dem
+Durchbrennen.
+
+> Die Spulen zählen erst **ab FA_Control 1.16 zusammen mit AtariFA 0.2.0** bei 1. Ist eine
+> der beiden Seiten älter, wird die um eins verschobene Spule ausgelöst — beide zusammen
+> aktualisieren.
 
 Darunter steht unter **PULSE TIME** die Impulsdauer in **MILLISECONDS**. Sie gilt für alle
 Spulen gemeinsam. Ändern Sie den Wert und drücken Sie **APPLY** — er wird gespeichert und
