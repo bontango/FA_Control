@@ -4,3 +4,11 @@ otadata,  data, ota,     0xf000,   0x2000,
 phy_init, data, phy,     0x11000,  0x1000,
 ota_0,    app,  ota_0,   0x20000,  0x180000,
 ota_1,    app,  ota_1,   0x1A0000, 0x180000,
+# Namensdateien (LittleFS). Liegt am bis dahin unbelegten Flash-Ende, damit alle
+# bestehenden Partitionen auf ihren Offsets bleiben -- eine aeltere Firmware
+# bootet mit dieser Tabelle unveraendert weiter. Umgekehrt gilt: die Tabelle
+# selbst (0x8000) wird von esp_https_ota NICHT geschrieben, ein per OTA
+# aktualisiertes Geraet findet die Partition also nicht. names_init() faellt
+# dann sauber auf "keine Namen" zurueck. 0x40000 = 256 KB ~ 50 Spiele;
+# 0x380000..0x400000 bleibt Reserve.
+names,    data, littlefs, 0x320000, 0x40000,

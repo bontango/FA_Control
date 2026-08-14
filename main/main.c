@@ -4,6 +4,7 @@
 #include "app_config.h"
 #include "board.h"
 #include "lisy.h"
+#include "names.h"
 #include "power_mgr.h"
 #include "web_server.h"
 #include "wifi_mgr.h"
@@ -28,6 +29,11 @@ void app_main(void)
     power_mgr_boot_gate();
 
     ESP_ERROR_CHECK(lisy_init());
+
+    /* Namensdateien sind Beiwerk: fehlt die Partition (Geraet nur per OTA
+     * aktualisiert, die Tabelle wird dabei nicht geschrieben), laeuft alles
+     * uebrige unveraendert weiter -- deshalb kein ESP_ERROR_CHECK. */
+    names_init();
 
     /* Beim Start wird bewusst nicht verbunden: solange niemand in der Oberflaeche
      * "CONNECT" drueckt, gehoert der Flipper sich selbst. Watchdog und Pulszeit

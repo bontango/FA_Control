@@ -164,7 +164,8 @@ oben links kommen Sie zurück.
 ### 01 · LAMPS
 
 Ein Raster mit einer Kachel je Lampe, von 0 an durchnummeriert. **Ein Klick schaltet die
-Lampe ein, der nächste wieder aus.** Eingeschaltete Lampen leuchten im Raster orange.
+Lampe ein, der nächste wieder aus.** Eingeschaltete Lampen sind im Raster kupferfarben
+ausgefüllt.
 
 So finden Sie eine defekte Lampe, ohne das Spiel durchspielen zu müssen: durchklicken und
 zuschauen, welche im Gehäuse dunkel bleibt.
@@ -195,7 +196,8 @@ gilt auch nach dem nächsten Einschalten.
 ### 03 · SWITCHES
 
 Ein Raster mit einer Kachel je Schalter. Die Anzeige aktualisiert sich **einmal pro
-Sekunde**; ein betätigter Schalter leuchtet grün.
+Sekunde**; ein betätigter Schalter ist grün ausgefüllt — genauso, wie eine eingeschaltete
+Lampe kupferfarben ausgefüllt ist.
 
 Diese Seite ist **reine Anzeige**. Schalter lassen sich nicht setzen — das Protokoll
 zwischen FA_Control und der Anlage kennt dafür keinen Befehl, weil ein Schalter etwas
@@ -219,6 +221,91 @@ das jeweilige Display hat.
 Geben Sie Ziffern ein und drücken Sie **SEND** (oder die Eingabetaste). Der Text erscheint
 **rechtsbündig** auf dem echten Display des Flippers. Zulässig sind Ziffern und
 Leerzeichen; ein Leerzeichen lässt die Stelle dunkel.
+
+### 07 · NAMES
+
+Optional. Die Kacheln sind durchnummeriert — über dieses Menü bekommen sie zusätzlich
+**sprechende Namen**, sodass bei Spule 7 *Knocker* steht statt bloß *7*.
+
+Eine **Namensdatei** ist eine kleine Textdatei, eine je Anlage. Sobald eine in Gebrauch
+ist, erscheint der Name unter der Nummer auf allen Kacheln in `LAMPS`, `COILS`, `SWITCHES`
+und `SOUND`; wer mit dem Zeiger auf einer Kachel stehenbleibt, sieht den vollen Namen.
+**Die Nummer bleibt immer die führende Beschriftung** — sie ist die Nummer, die tatsächlich
+zur Anlage geht.
+
+Ganz oben im Menü zeigt **THIS MACHINE** die **Kennung** der angeschlossenen Anlage, zum
+Beispiel `AtariFA_002`, und ob die passende Datei vorhanden ist. Diese Kennung ist der
+Dateiname: **`AtariFA_002.cfg`**. Lesen Sie sie dort ab, statt sie sich herzuleiten — erst
+verbinden, dann nachsehen.
+
+*FILES ON THIS DEVICE* listet auf, was gespeichert ist. **USE** aktiviert eine Datei (die
+aktive ist mit ● markiert), **DELETE** entfernt sie. Die Auswahl übersteht einen Neustart.
+
+Zum Hinzufügen gibt es zwei Wege:
+
+- **UPLOAD** — eine `.cfg`-Datei vom Telefon oder Rechner auswählen und **UPLOAD** drücken.
+  Das funktioniert auch im geräteeigenen Netz `FA-Control` und ist damit der Weg, der immer
+  geht, auch im Keller ohne Empfang.
+- **LOAD LIST FROM LISY.DEV** — holt die auf lisy.dev veröffentlichten Dateien, **DOWNLOAD**
+  kopiert die ausgewählte auf das Gerät. Dafür braucht das Gerät Ihr Heimnetz; im AP-Modus
+  ist die Schaltfläche gesperrt.
+
+**Wie die Kennung gebildet wird:** aus dem **Hardware-Namen**, den die Platine meldet, und
+der **Spielnummer**, dreistellig mit führenden Nullen — `AtariFA` und Spiel 2 ergeben
+`AtariFA_002`. Bei AtariFA ist die Spielnummer die Stellung der Spielwahl-DIP-Bank:
+
+| Kennung | Anlage |
+|---|---|
+| `AtariFA_000` | The Atarians |
+| `AtariFA_001` | Time 2000 |
+| `AtariFA_002` | Airborne Avenger |
+| `AtariFA_003` | Middle Earth |
+| `AtariFA_004` | Space Riders |
+
+Der Hardware-Name muss darin vorkommen, weil die Spielnummern auf jeder Platine wieder bei
+0 anfangen — auf einer GottFA1 für Gottlieb System 1 heißen die Dateien `GottFA1_000.cfg`
+und so fort, und sie dürfen sich mit den Atari-Dateien nicht ins Gehege kommen.
+
+**Groß- und Kleinschreibung spielt keine Rolle.** `atarifa_002.cfg` funktioniert genauso;
+laden Sie eine Datei hoch, die es schon in anderer Schreibweise gibt, ersetzt sie diese,
+statt sich danebenzulegen.
+
+Die Kennung selbst trägt keinen lesbaren Namen — dafür gibt es die Zeile `[game] name=` in
+der Datei. FA_Control zeigt ihn auf der Startseite in Klammern: `GAME 2 (AIRBORNE
+AVENGER)`.
+
+**Automatische Auswahl beim CONNECT:** Die passende Datei wird aktiviert. **Gibt es keine
+passende Datei, wird die Auswahl geleert** und die Kacheln zeigen wieder nur Nummern. Das
+ist Absicht — sonst sähen Sie nach dem Umschalten auf ein anderes Spiel weiterhin die Namen
+des vorherigen, ohne es zu merken. Eine von Hand über **USE** gewählte Datei bleibt bis zum
+nächsten **CONNECT** aktiv.
+
+Der Kasten **FILE FORMAT** am Ende des Menüs zeigt den Aufbau. Es ist reiner Text, je
+Eintrag eine Zeile `nummer=name`, gruppiert in Abschnitte:
+
+```
+AtariFA_002.cfg
+
+[game]
+name=Airborne Avenger
+
+[coils]
+1=Left Flipper
+7=Knocker
+
+[switches]
+12=Left Slingshot
+```
+
+Die Abschnitte heißen `[game]`, `[lamps]`, `[coils]`, `[switches]`, `[sounds]` und
+`[displays]`. **Spulennummern beginnen bei 1, Lampen, Schalter und Sounds bei 0** — genau
+die Zählung, die auch die Kacheln verwenden. Zeilen, die mit `#` beginnen, sind
+Kommentare. Sie müssen nur eintragen, was Sie interessiert; alles andere bleibt numerisch.
+Höchstens 32 kB je Datei.
+
+> Fehlt die Kachel 07 ganz, hat Ihr Gerät keinen Speicherbereich für Namensdateien. Das ist
+> der Fall, wenn es bisher nur über die Luft aktualisiert wurde: der Bereich muss einmalig
+> per USB eingerichtet werden. Alles andere funktioniert auch ohne ihn unverändert.
 
 ---
 

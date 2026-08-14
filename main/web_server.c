@@ -13,12 +13,15 @@
 #include "fa_connect.h"
 #include "fw_update.h"
 #include "lisy.h"
+#include "names.h"
 #include "wifi_mgr.h"
 
 static const char *TAG = "web";
 
 extern const uint8_t index_html_gz_start[] asm("_binary_index_html_gz_start");
 extern const uint8_t index_html_gz_end[]   asm("_binary_index_html_gz_end");
+extern const uint8_t logo_png_start[]      asm("_binary_logo_png_start");
+extern const uint8_t logo_png_end[]        asm("_binary_logo_png_end");
 
 static char s_disp_text[CFG_MAX_DISPLAYS][CFG_MAX_DISP_W + 1];
 static bool s_switches_initialized;
@@ -111,6 +114,17 @@ static esp_err_t root_get_handler(httpd_req_t *req)
                            index_html_gz_end - index_html_gz_start);
 }
 
+/* Logo der Kopfleiste. Muss VOR dem Wildcard-Eintrag registriert sein, sonst
+ * schluckt der Captive-Portal-Umleiter das Bild und im AP-Modus -- also genau
+ * beim Einrichten -- staende dort ein kaputtes Bild. */
+static esp_err_t logo_get_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "image/png");
+    httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=31536000, immutable");
+    return httpd_resp_send(req, (const char *)logo_png_start,
+                           logo_png_end - logo_png_start);
+}
+
 /* ---- API: Konfiguration -------------------------------------------------- */
 
 static esp_err_t config_get_handler(httpd_req_t *req)
@@ -121,18 +135,25 @@ static esp_err_t config_get_handler(httpd_req_t *req)
     for (int i = 0; i < ci->displays && i < CFG_MAX_DISPLAYS; i++) {
         p += snprintf(dw + p, sizeof(dw) - p, "%s%u", i ? "," : "", ci->disp_width[i]);
     }
-    char buf[448];
+    /* Kennung dieser Anlage, "<HW>_<GAME>" -- der Name, den die Namensdatei
+     * tragen muss. Die Oberflaeche zeigt sie im Menue NAMES an. */
+    char gameid[NAMES_MAX_ID];
+    names_game_id(gameid, sizeof(gameid));
+
+    char buf[576];
     snprintf(buf, sizeof(buf),
              "{\"lamps\":%u,\"coils\":%u,\"switches\":%u,\"sounds\":%u,"
              "\"displays\":%u,\"dw\":[%s],\"wd\":%d,\"wdlast\":%d,\"pulse\":%u,"
              "\"conn\":%d,\"connmsg\":\"%s\","
-             "\"hw\":\"%s\",\"fwver\":\"%s\",\"apiver\":\"%s\",\"game\":\"%s\"}",
+             "\"hw\":\"%s\",\"fwver\":\"%s\",\"apiver\":\"%s\",\"game\":\"%s\","
+             "\"namesfs\":%d,\"names\":\"%s\",\"gameid\":\"%s\"}",
              ci->lamps, ci->coils, ci->switches, ci->sounds,
              ci->displays, dw,
              lisy_watchdog_enabled() ? 1 : 0, lisy_watchdog_last_result(),
              g_cfg.coil_pulse_ms,
              (int)ci->state, fa_connect_state_str(),
-             ci->hw, ci->fw_ver, ci->api_ver, ci->game);
+             ci->hw, ci->fw_ver, ci->api_ver, ci->game,
+             names_ready() ? 1 : 0, names_active(), gameid);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
 }
@@ -304,6 +325,180 @@ static esp_err_t status_get_handler(httpd_req_t *req)
     return httpd_resp_sendstr(req, buf);
 }
 
+/* ---- API: Namensdateien --------------------------------------------------- */
+
+/* Beschriftung der Kacheln, sonst nichts. Ohne Partition (Geraet nur per OTA
+ * aktualisiert) weisen alle Handler hier ab und die Oberflaeche blendet den
+ * Bereich aus -- der Rest von FA_Control merkt davon nichts. */
+
+#define NAMES_NO_FS_MSG "No name storage on this device"
+
+/* Die aktive Datei roh ausliefern; das Zerlegen macht die Weboberflaeche. */
+static esp_err_t names_get_handler(httpd_req_t *req)
+{
+    if (!names_ready()) {
+        return send_err(req, NAMES_NO_FS_MSG);
+    }
+    const char *active = names_active();
+    if (!active[0]) {
+        return send_err(req, "No naming file selected");
+    }
+
+    FILE *fp = NULL;
+    if (names_open(active, &fp) != ESP_OK) {
+        return send_err(req, "Naming file not found");
+    }
+
+    httpd_resp_set_type(req, "text/plain");
+    char buf[512];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+        if (httpd_resp_send_chunk(req, buf, n) != ESP_OK) {
+            fclose(fp);
+            return ESP_FAIL;
+        }
+    }
+    fclose(fp);
+    return httpd_resp_send_chunk(req, NULL, 0);
+}
+
+static esp_err_t namelist_get_handler(httpd_req_t *req)
+{
+    char *buf = malloc(NAMES_LIST_BUF);
+    if (!buf) {
+        return send_err(req, "Out of memory");
+    }
+    /* meldet "fs":0 selbst, wenn nichts gemountet ist */
+    names_list_json(buf, NAMES_LIST_BUF);
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t ret = httpd_resp_sendstr(req, buf);
+    free(buf);
+    return ret;
+}
+
+static esp_err_t namesel_post_handler(httpd_req_t *req)
+{
+    if (!names_ready()) {
+        return send_err(req, NAMES_NO_FS_MSG);
+    }
+    char file[NAMES_MAX_NAME] = "";
+    get_param(req, "file", file, sizeof(file));   /* leer = Auswahl aufheben */
+
+    esp_err_t err = names_select(file);
+    if (err == ESP_ERR_NOT_FOUND) {
+        return send_err(req, "Naming file not found");
+    }
+    if (err != ESP_OK) {
+        return send_err(req, "Invalid file name");
+    }
+    return send_ok(req);
+}
+
+static esp_err_t namedel_post_handler(httpd_req_t *req)
+{
+    if (!names_ready()) {
+        return send_err(req, NAMES_NO_FS_MSG);
+    }
+    char file[NAMES_MAX_NAME];
+    if (!get_param(req, "file", file, sizeof(file))) {
+        return send_err(req, "Parameter file missing");
+    }
+    if (names_delete(file) != ESP_OK) {
+        return send_err(req, "Naming file not found");
+    }
+    return send_ok(req);
+}
+
+/* Einziger Handler mit Nutzlast im Body -- alles andere kommt als
+ * Query-Parameter. Der Inhalt ist eine Textdatei, die sich schlecht in eine URL
+ * pressen laesst; der Dateiname bleibt trotzdem Parameter. */
+static esp_err_t nameup_post_handler(httpd_req_t *req)
+{
+    if (!names_ready()) {
+        return send_err(req, NAMES_NO_FS_MSG);
+    }
+    char file[NAMES_MAX_NAME];
+    if (!get_param(req, "file", file, sizeof(file))) {
+        return send_err(req, "Parameter file missing");
+    }
+    if (!names_valid_filename(file)) {
+        return send_err(req, "Invalid file name - use <HARDWARE>_<GAME>.cfg");
+    }
+    if (req->content_len == 0 || req->content_len > NAMES_MAX_FILE_SIZE) {
+        return send_err(req, "File empty or too large (max 32 kB)");
+    }
+
+    char *body = malloc(req->content_len);
+    if (!body) {
+        return send_err(req, "Out of memory");
+    }
+    size_t got = 0;
+    while (got < req->content_len) {
+        int n = httpd_req_recv(req, body + got, req->content_len - got);
+        if (n <= 0) {
+            free(body);
+            return send_err(req, "Upload interrupted");
+        }
+        got += n;
+    }
+
+    esp_err_t err = names_write(file, body, got);
+    free(body);
+    if (err == ESP_ERR_INVALID_ARG) {
+        return send_err(req, "Not a plain text file");
+    }
+    if (err != ESP_OK) {
+        return send_err(req, "Write failed - storage full?");
+    }
+    ESP_LOGI(TAG, "Namensdatei %s hochgeladen (%u Byte)", file, (unsigned)got);
+    return send_ok(req);
+}
+
+static esp_err_t namefetchlist_get_handler(httpd_req_t *req)
+{
+    if (wifi_mgr_get_mode() == WIFI_MGR_MODE_AP) {
+        return send_err(req, "No internet in AP mode");
+    }
+    char *buf = malloc(1536);
+    if (!buf) {
+        return send_err(req, "Out of memory");
+    }
+    esp_err_t err = names_fetch_list_json(buf, 1536);
+    if (err != ESP_OK) {
+        free(buf);
+        return send_err(req, "Server unreachable");
+    }
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t ret = httpd_resp_sendstr(req, buf);
+    free(buf);
+    return ret;
+}
+
+static esp_err_t namefetch_post_handler(httpd_req_t *req)
+{
+    if (!names_ready()) {
+        return send_err(req, NAMES_NO_FS_MSG);
+    }
+    if (wifi_mgr_get_mode() == WIFI_MGR_MODE_AP) {
+        return send_err(req, "No internet in AP mode");
+    }
+    char file[NAMES_MAX_NAME];
+    if (!get_param(req, "file", file, sizeof(file))) {
+        return send_err(req, "Parameter file missing");
+    }
+    esp_err_t err = names_fetch(file);
+    if (err == ESP_ERR_INVALID_ARG) {
+        return send_err(req, "Invalid file name");
+    }
+    if (err == ESP_ERR_INVALID_SIZE) {
+        return send_err(req, "File too large (max 32 kB)");
+    }
+    if (err != ESP_OK) {
+        return send_err(req, "Download failed");
+    }
+    return send_ok(req);
+}
+
 /* ---- API: Firmware-Update (OTA von lisy.dev) ------------------------------ */
 
 static esp_err_t fwlist_get_handler(httpd_req_t *req)
@@ -396,7 +591,10 @@ esp_err_t web_server_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.uri_match_fn = httpd_uri_match_wildcard;
-    cfg.max_uri_handlers = 16;
+    /* Muss >= Anzahl der Eintraege in uris[] sein, sonst werden die letzten
+     * stillschweigend nicht registriert und laufen in den Captive-Portal-
+     * Fallback. Beim Hinzufuegen eines Endpunkts hier mitzaehlen. */
+    cfg.max_uri_handlers = 28;
     cfg.lru_purge_enable = true;
     /* TLS-Client (fwlist via mbedTLS) laeuft im httpd-Task -> mehr Stack noetig */
     cfg.stack_size = 10240;
@@ -423,6 +621,15 @@ esp_err_t web_server_start(void)
         { .uri = "/api/fwlist",  .method = HTTP_GET,  .handler = fwlist_get_handler },
         { .uri = "/api/fwupdate",.method = HTTP_POST, .handler = fwupdate_post_handler },
         { .uri = "/api/fwstatus",.method = HTTP_GET,  .handler = fwstatus_get_handler },
+        { .uri = "/api/names",   .method = HTTP_GET,  .handler = names_get_handler },
+        { .uri = "/api/namelist",.method = HTTP_GET,  .handler = namelist_get_handler },
+        { .uri = "/api/namesel", .method = HTTP_POST, .handler = namesel_post_handler },
+        { .uri = "/api/namedel", .method = HTTP_POST, .handler = namedel_post_handler },
+        { .uri = "/api/nameup",  .method = HTTP_POST, .handler = nameup_post_handler },
+        { .uri = "/api/namefetchlist", .method = HTTP_GET,  .handler = namefetchlist_get_handler },
+        { .uri = "/api/namefetch",     .method = HTTP_POST, .handler = namefetch_post_handler },
+        { .uri = "/logo.png",    .method = HTTP_GET,  .handler = logo_get_handler },
+        /* Der Wildcard-Eintrag faengt alles Uebrige und muss zuletzt stehen. */
         { .uri = "/*",           .method = HTTP_GET,  .handler = root_get_handler },
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {

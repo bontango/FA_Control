@@ -2,7 +2,7 @@
 
 Web-based control of a pinball machine over the
 [LISY protocol](https://missionpinball.org/latest/hardware/lisy/protocol/). The ESP32-C3
-acts as a LISY host: it serves a retro-styled single-page interface and sends the control
+acts as a LISY host: it serves a single-page interface in the colours of lisy.dev and sends the control
 commands as binary LISY frames over UART to the machine. Its counterpart is the VHDL module
 `rtl/fa_control/`, first implemented in [AtariFA](https://github.com/bontango/AtariFA) and
 portable to the other FA FPGA projects.
@@ -12,6 +12,11 @@ disassembly. The machine reports its own hardware inventory during the handshake
 nothing has to be configured by hand. **Until you press CONNECT, the machine belongs to
 itself:** FA_Control never announces itself at power-up, and the control menus stay locked
 until the far side actually grants control.
+
+Optionally a **naming file** per machine turns the numbered tiles into speaking names — coil
+7 reads *Knocker* instead of *7*. The file is named after the machine ID the board reports,
+`<hardware>_<game>.cfg` (e.g. `AtariFA_002.cfg`), and is picked up automatically on connect.
+See [`names/example.cfg`](names/example.cfg) for the format.
 
 | | |
 |---|---|
@@ -44,6 +49,10 @@ until the far side actually grants control.
 idf.py -B C:\Users\bonta\esp\build\fa build
 idf.py -B C:\Users\bonta\esp\build\fa -p COM7 flash monitor
 ```
+
+Note that `flash` (not `app-flash`) is what writes the partition table. Naming files live
+on their own LittleFS partition, and an over-the-air update never touches the table — a
+device that has only seen OTA updates simply reports no naming storage and hides that menu.
 
 Two traps are worth knowing before the first build — the mandatory **local** build
 directory (`-B`, because `N:` is a UNC network drive) and the **`IDF_PYTHON_ENV_PATH`**

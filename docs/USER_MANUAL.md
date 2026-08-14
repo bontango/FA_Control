@@ -160,7 +160,7 @@ top left takes you back.
 ### 01 · LAMPS
 
 A grid with one tile per lamp, numbered from 0 up. **One click switches the lamp on, the
-next one switches it off again.** Lamps that are on glow amber in the grid.
+next one switches it off again.** Lamps that are on are filled copper in the grid.
 
 This is how you find a dead lamp without playing through the game: click through them and
 watch which one stays dark in the cabinet.
@@ -188,7 +188,7 @@ cycle.
 ### 03 · SWITCHES
 
 A grid with one tile per switch. The display refreshes **once per second**; an actuated
-switch glows green.
+switch is filled green — the same way an active lamp is filled copper.
 
 This page is **display only**. Switches cannot be set — the protocol between FA_Control and
 the machine has no command for it, because a switch reports something rather than doing
@@ -210,6 +210,89 @@ button. The label states how many digits that display has.
 Enter digits and press **SEND** (or the Enter key). The text appears **right-aligned** on
 the real display of the machine. Digits and spaces are allowed; a space leaves that
 position dark.
+
+### 07 · NAMES
+
+Optional. Tiles are numbered — this menu lets you give them **speaking names** as well, so
+coil 7 reads *Knocker* instead of just *7*.
+
+A **naming file** is a small text file, one per machine. Once one is in use, the name
+appears under the number on every tile in `LAMPS`, `COILS`, `SWITCHES` and `SOUND`, and
+hovering a tile shows the full name. **The number always stays the leading label** — it is
+the number that actually goes to the machine.
+
+At the top of the menu, **THIS MACHINE** shows the **ID** of the machine you are connected
+to, for example `AtariFA_002`, and whether the matching file is present. That ID is the
+file name: **`AtariFA_002.cfg`**. Read it there rather than working it out — connect first,
+then look.
+
+*FILES ON THIS DEVICE* lists what is stored. **USE** activates a file (the active one is
+marked ●), **DELETE** removes it. The selection survives a restart.
+
+There are two ways to add a file:
+
+- **UPLOAD** — pick a `.cfg` file from your phone or computer and press **UPLOAD**. This
+  works in the machine's own `FA-Control` network too, so it is the way that always works,
+  even in a cellar without reception.
+- **LOAD LIST FROM LISY.DEV** — fetches the files published on lisy.dev, then **DOWNLOAD**
+  copies the selected one onto the device. This needs your home network; the button is
+  disabled in AP mode.
+
+**How the ID is built:** it is the **hardware name** the board reports plus the **game
+number**, three digits with leading zeros — `AtariFA` and game 2 give `AtariFA_002`. On
+AtariFA the game number is the position of the game select DIP bank:
+
+| ID | Machine |
+|---|---|
+| `AtariFA_000` | The Atarians |
+| `AtariFA_001` | Time 2000 |
+| `AtariFA_002` | Airborne Avenger |
+| `AtariFA_003` | Middle Earth |
+| `AtariFA_004` | Space Riders |
+
+The hardware name has to be part of it because the game numbers start over on every board —
+on a GottFA1 for Gottlieb System 1 the files are called `GottFA1_000.cfg` and so on, and
+they must not collide with the Atari ones.
+
+**Upper and lower case do not matter.** `atarifa_002.cfg` works just as well; if you upload
+a file that already exists under a different spelling, it replaces that one instead of
+sitting next to it.
+
+The ID itself carries no readable name — that is what the `[game] name=` line inside the
+file is for. FA_Control shows it in brackets on the home screen: `GAME 2 (AIRBORNE
+AVENGER)`.
+
+**Automatic selection on CONNECT:** the matching file is activated. **If there is no
+matching file, the selection is cleared** and the tiles go back to plain numbers. That is
+deliberate — otherwise, after switching the machine to a different game, you would keep
+seeing the previous game's names without noticing. A file picked by hand with **USE** stays
+active until the next **CONNECT**.
+
+The **FILE FORMAT** box at the bottom of the menu shows the layout. It is plain text, one
+`number=name` line per entry, grouped in sections:
+
+```
+AtariFA_002.cfg
+
+[game]
+name=Airborne Avenger
+
+[coils]
+1=Left Flipper
+7=Knocker
+
+[switches]
+12=Left Slingshot
+```
+
+Sections are `[game]`, `[lamps]`, `[coils]`, `[switches]`, `[sounds]` and `[displays]`.
+**Coil numbers start at 1, lamps, switches and sounds start at 0** — the same numbering the
+tiles use. Lines starting with `#` are comments. You only need the entries you care about;
+everything else stays numeric. Maximum 32 kB per file.
+
+> If tile 07 is missing entirely, your device has no storage for naming files. That happens
+> when it was only ever updated over the air: the storage area has to be set up once by
+> flashing over USB. Everything else works exactly the same without it.
 
 ---
 

@@ -8,6 +8,7 @@
 #include "app_config.h"
 #include "board.h"
 #include "lisy.h"
+#include "names.h"
 
 static const char *TAG = "fa_connect";
 
@@ -128,6 +129,12 @@ esp_err_t fa_connect_run(void)
      * genau deshalb an sie gekoppelt statt einstellbar. */
     lisy_watchdog_enable(true);
     lisy_coil_apply_pulse_time(s_info.coils, g_cfg.coil_pulse_ms);
+
+    /* Namensdatei zur Kennung dieser Anlage waehlen ("<HW>_<GAME>"). Gibt es
+     * keine, wird die Auswahl geleert -- sonst stuenden nach einem Spielwechsel
+     * die Namen des vorigen Spiels auf den Kacheln. Muss nach query_counts()
+     * stehen: die Kennung kommt aus s_info. */
+    names_select_for_id();
 
     ESP_LOGI(TAG, "Kontrolle aktiv");
     return ESP_OK;

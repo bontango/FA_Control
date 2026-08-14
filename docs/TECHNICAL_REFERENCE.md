@@ -235,7 +235,9 @@ All under `main/`.
 | `app_config.c/h` | NVS blob (namespace `facfg`) — **coil pulse time only** |
 | `wifi_mgr.c/h` | STA from NVS, fallback AP + captive portal + mDNS |
 | `web_server.c/h` | `esp_http_server`: REST API + embedded page |
-| `fw_update.c/h` | OTA from lisy.dev (`esp_https_ota`, directory listing) |
+| `fw_update.c/h` | OTA from lisy.dev (`esp_https_ota`) |
+| `repo.c/h` | shared access to the lisy.dev file store: directory listing, download, file name check |
+| `names.c/h` | naming files on the LittleFS partition (management only, no parsing) |
 | `web/index.html` | single-page frontend, gzipped and embedded at build time |
 
 ### 6.1 The NVS blob has a version
@@ -245,8 +247,92 @@ happened to keep the same size, old data was misread; if the size changed, the
 configuration vanished without a word. Since v1.11 the struct carries `magic` (`0xFA`) and
 `version`. **Increment `CFG_VERSION` on every change to the field layout.**
 
-Since v1.11 the blob contains only `coil_pulse_ms`. Everything else either comes from the
-device or was a setting able to contradict the connection state.
+Since v1.11 the blob held only `coil_pulse_ms`. Everything else either comes from the
+device or was a setting able to contradict the connection state. v1.17 adds
+`names_file[24]` (`CFG_VERSION` 3 → 4) — the selected naming file. That does not break the
+rule: it does not describe the inventory, only how its numbers are labelled, and it comes
+from the user, not from the device.
+
+---
+
+## 6.2 Naming files
+
+[`main/names.c`](../main/names.c). Speaking names for lamps, coils, switches and sounds,
+one INI-style text file per machine on a **LittleFS partition `names`**
+(`joltwallet/littlefs`).
+
+**The ESP does not parse these files.** It manages them — store, list, delete, select — and
+serves the active one verbatim; the web frontend does the parsing. That keeps the parser
+where the names are actually needed and costs the device neither RAM nor code.
+
+- Section format: `[game] [lamps] [coils] [switches] [sounds] [displays]`, entries
+  `number=name`. **Coils count from 1, everything else from 0** — the numbers that go over
+  the wire. `#` and `;` start a comment.
+- Limits: 32 kB per file (`NAMES_MAX_FILE_SIZE`), file name `NAME.cfg` up to 31 characters
+  from `[A-Za-z0-9._-]` (`repo_valid_filename()` — the same check that guards OTA file
+  names, which is why it lives in `repo.c`).
+- Uploads are rejected if they contain control characters other than tab and newline. Bytes
+  from `0x80` up stay allowed so UTF-8 names work. That is deliberately not a parser; it
+  just keeps a binary blob — which practically always carries NUL bytes — from filling the
+  partition.
+- `names_list_json()` reports at most `NAMES_MAX_LIST` (32) files and the caller sizes its
+  buffer with `NAMES_LIST_BUF`.
+### 6.2.1 The machine ID is the file name
+
+`names_game_id()` builds `<HW>_<GAME>` from `fa_conn_info_t` — `hw` (LISY opcode `0x00`)
+and `game` (opcode `0x08`). Both are stripped to `[A-Za-z0-9_-]`, **case is preserved**
+because the ID is displayed exactly as it is built. A purely numeric GAME below 1000 is
+padded to three digits; anything else is taken verbatim, because what a future counterpart
+reports as its game key is not ours to guess.
+
+| reported | ID | file |
+|---|---|---|
+| `AtariFA` + `2` | `AtariFA_002` | `AtariFA_002.cfg` |
+| `GottFA1` + `4` | `GottFA1_004` | `GottFA1_004.cfg` |
+| `GottFA1` + `superman` | `GottFA1_superman` | `GottFA1_superman.cfg` |
+
+**Why the hardware name has to be in there:** AtariFA answers opcode 8 with a *single ASCII
+digit* — `fa_control.vhd` sends `ascii_digit(game_info)`, fed from `'0' & (not
+game_select)`, the 3-bit game select DIP bank (0 Atarians, 1 Time 2000, 2 Airborne
+Avenger, 3 Middle Earth, 4 Space Riders; 5–7 fall back to Middle Earth in `game_sel`, but
+opcode 8 still reports the raw value). That numbering restarts at 0 on every board, so the
+game number alone cannot tell an AtariFA machine from a GottFA1 one. `HW_NAME` is already
+a generic of the `fa_control` module and exists for exactly this purpose.
+
+The ID carries no readable name — that is what the `[game] name=` line is for; the frontend
+shows it in brackets behind `GAME …`, and the raw ID in menu 07 NAMES (`"gameid"` in
+`/api/config`).
+
+`names_select_for_id()` runs after `query_counts()` on a successful handshake:
+
+- match → that file becomes active
+- **no match → the selection is cleared**
+
+The clearing is the point. A unique ID is what makes *wrong* labelling possible in the
+first place: switch the DIP from Airborne Avenger to Space Riders without a file for the
+latter, and the old game's names would otherwise stay on the tiles unnoticed. No names beat
+wrong names. A manual pick via **USE** still works and holds until the next connect.
+
+`set_active()` writes to NVS **only when the name actually changes** — otherwise every
+connect would cost a flash write.
+
+### 6.2.2 The partition needs a USB flash
+
+```
+names,    data, littlefs, 0x320000, 0x40000,
+```
+
+256 kB at the previously unused end of the 4 MB flash; `0x380000..0x400000` stays reserve.
+All existing partitions keep their offsets, so **older firmware still boots with this
+table**.
+
+The other direction is the one that matters: **`esp_https_ota` never writes the partition
+table** (it lives at `0x8000`). A device updated only over the air therefore does not have
+the partition. That is not an error case — `names_init()` returns `ESP_ERR_NOT_FOUND`,
+`names_ready()` stays false, every naming endpoint answers `No name storage on this
+device`, `/api/config` reports `"namesfs":0` and the frontend hides tile 07. Everything
+else works unchanged. To actually get the partition, flash over USB
+(`idf.py -B … -p COM7 flash`, not `app-flash`).
 
 ---
 
@@ -273,7 +359,23 @@ Query parameters only — there is no JSON parsing anywhere. Responses are built
 | `GET /api/fwlist` | `.bin` files on lisy.dev as JSON |
 | `POST /api/fwupdate?file=FA_Control_v1.13.bin` | start OTA update |
 | `GET /api/fwstatus` | progress (`idle`/`running`/`ok`/`error`, percent, message) |
+| `GET /api/names` | the active naming file, raw `text/plain`, chunked |
+| `GET /api/namelist` | files on the partition + active one + bytes used |
+| `POST /api/namesel?file=AtariFA_002.cfg` | select the active file (empty = none) |
+| `POST /api/namedel?file=AtariFA_002.cfg` | delete a file |
+| `POST /api/nameup?file=AtariFA_002.cfg` | upload — **the only endpoint with a request body** |
+| `GET /api/namefetchlist` | `.cfg` files on lisy.dev as JSON |
+| `POST /api/namefetch?file=AtariFA_002.cfg` | download a naming file from lisy.dev |
 | `GET /*` | captive portal redirect to `/` resp. `http://192.168.4.1/` |
+
+`cfg.max_uri_handlers` in `web_server_start()` must be at least as large as the `uris[]`
+array — otherwise the last entries are silently not registered and fall through to the
+captive-portal handler. It sat at exactly 16 with 16 entries; v1.17 raised it to 24.
+**Count along when adding an endpoint.**
+
+`POST /api/nameup` carries the file content in the body (a text file does not fit sensibly
+into a URL); the file name stays a query parameter. Everything else keeps to query
+parameters.
 
 The control endpoints (`lamp`, `coil`, `sound`, `display`) validate against
 `fa_connect_info()->…`. Without granted control those counts are 0, so every command ends
@@ -289,17 +391,67 @@ interface and therefore English — this includes `fa_connect_state_str()` and a
 
 ## 8. Web frontend
 
-[`main/web/index.html`](../main/web/index.html) — a single page, vanilla JS, retro CRT
-styling, no external assets. At build time `main/CMakeLists.txt` runs `web/gzip_file.py`
-over it and embeds the result with `target_add_binary_data`; `web_server.c` serves it with
-`Content-Encoding: gzip`.
+[`main/web/index.html`](../main/web/index.html) — a single page, vanilla JS, **no external
+assets** (the CSP of the embedded server aside, the device has no internet in AP mode). At
+build time `main/CMakeLists.txt` runs `web/gzip_file.py` over it and embeds the result with
+`target_add_binary_data`; `web_server.c` serves it with `Content-Encoding: gzip`.
+
+### 8.1 Visual identity
+
+Since v1.17 the page carries the colour world of **lisy.dev**, so device and website read as
+one project. The palette is derived from `lisy.dev/assets/bundle.css` and then darkened one
+step — the site's ground is `#FCF7F0` at 96 % lightness, practically white, which glares on
+a service screen inside an opened cabinet. Hue kept, lightness down to 90 %.
+
+All colours live in `:root`; every rule takes them from there, so a later dark mode is a
+matter of redefining tokens. The page is deliberately **single-theme** and paints every
+colour explicitly rather than inheriting anything from the browser.
+
+| token | value | role |
+|---|---|---|
+| `--bg` / `--panel` | `#F2E9DC` / `#FBF6EF` | ground, tiles |
+| `--dark` / `--dark-2` | `#33201A` / `#281713` | dark surfaces, header bar |
+| `--cu` / `--cu-dk` / `--cu-hi` | `#A96A47` / `#6B3A20` / `#BE8360` | accent, headings, highlight |
+| `--txt` / `--dim` | `#2E2622` / `#6F6053` | body, secondary |
+| `--ok` / `--ok-dk` | `#2A6E2C` / `#1D4E1F` | switch closed |
+| `--warn` | `#8F2A0F` | control lost, destructive |
+| `--seg-bg` | `#211A15` | seven-segment mock-up |
+
+Two consequences of moving off the black ground:
+
+- **State is a filled area, not a glow.** `.cell.on` (lamp) fills copper, `.cell.sw.on`
+  (switch closed) fills green, both with a darker border and white text — the same method
+  in two colours. On black the glow carried the information; on a light ground a merely
+  tinted border is invisible at arm's length. The two fills sit in separate menus and carry
+  different glyphs (◉ / ▣), so they never have to be told apart by hue.
+- **The seven-segment mock-up stays dark.** A real display is, and the ghost digits `8888`
+  only work on a dark ground. It is the one deliberate dark island.
+
+The CRT scanlines and vignette (`body::before` / `body::after`) are gone, and the base font
+is the lisy.dev stack `'Helvetica Neue',Helvetica,Arial,sans-serif`. Monospace remains only
+where characters must line up: the seven-segment mock-up and the file-format example.
+
+Labels stayed in upper case on purpose — the manuals quote them verbatim, and changing them
+would mean a full documentation pass for no functional gain.
+
+The logo sits at the right of the header, served from `GET /logo.png` as embedded binary
+data. It is **not** a data URI: a PNG is already compressed, base64 would inflate it by a
+third, and the page's gzip could not win that back (14,677 B versus 19,569 B).
 
 Structure: the home screen **is** the handshake — it shows the connection banner, the
 buttons **CONNECT** / **RELEASE CONTROL** / **RE-INITIALIZE (0x64)**, the *REPORTED
 HARDWARE* panel, and a tile menu. Tiles 01–05 (`LAMPS`, `COILS`, `SWITCHES`, `SOUND`,
-`DISPLAYS`) stay disabled while `conn !== 1`; tile 06 `WI-FI` (network + firmware) is
-always reachable. The home screen polls `/api/config` every 2 s, because the far side can
-take control back at any time and that has to be visible.
+`DISPLAYS`) stay disabled while `conn !== 1`; tiles 06 `WI-FI` (network + firmware) and
+07 `NAMES` are always reachable — setting up the network and managing files works without
+control. Tile 07 is hidden entirely when `namesfs === 0`. The home screen polls
+`/api/config` every 2 s, because the far side can take control back at any time and that
+has to be visible.
+
+`parseNames()` reads the active naming file and `mkgrid()` puts the name under the number
+on each tile; the grid switches to the wider `.named` layout. **The number stays the
+leading label** — it is what goes over the wire. Names are inserted with `textContent`
+(or through `esc()` where `innerHTML` is unavoidable), because they come from an uploaded
+file. Without a file everything looks exactly as before.
 
 The interface is in English. The manuals under `docs/` quote its labels verbatim — a
 renamed button has to be followed up there.
@@ -323,17 +475,20 @@ renamed button has to be followed up there.
 [`main/fw_update.c`](../main/fw_update.c). Base URL
 `https://lisy.dev/swrep/misc/FA_Control/bin/`.
 
-- `fw_update_list_json()` fetches the Apache directory index and scans it for
-  `href="*.bin"` (max 20 entries), sorted descending so the newest is first. Naming
-  convention: `FA_Control_vX.YZ.bin`.
+- `repo_list_json()` ([`main/repo.c`](../main/repo.c)) fetches the Apache directory index
+  and scans it for `href="*<suffix>"` (max 20 entries), sorted descending so the newest is
+  first. Naming convention: `FA_Control_vX.YZ.bin`. The naming files under
+  `…/FA_Control/names/` are found the same way, only with `.cfg` — which is why the scanner
+  sits in `repo.c` instead of twice in the callers.
 - `fw_update_start()` runs `esp_https_ota` in its own task against the certificate bundle,
   writes to the inactive OTA partition, validates the image, sets the boot partition and
   reboots. Progress is polled via `/api/fwstatus`.
 - Requires STA mode — there is no internet in AP mode, and both endpoints reject with
   `No internet in AP mode`.
 - Partitions: `partitions.csv`, `ota_0` and `ota_1` at 0x20000 / 0x1A0000, 1.5 MB each,
-  flash size 4 MB. The running version comes from `version.txt` (PROJECT_VER) via
-  `esp_app_get_description()`.
+  `names` (LittleFS) at 0x320000, 256 kB, flash size 4 MB. The running version comes from
+  `version.txt` (PROJECT_VER) via `esp_app_get_description()`. **An OTA update writes the
+  app partition only** — never the partition table, the bootloader or `names`.
 - The httpd task runs with `stack_size = 10240` because the TLS client for the listing
   executes inside it.
 
