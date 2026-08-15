@@ -2,7 +2,8 @@
 
 Firmware internals, hardware bindings, protocol details and build procedure.
 For operating the device see [USER_MANUAL.md](USER_MANUAL.md) (English) or
-[BEDIENUNGSANLEITUNG.md](BEDIENUNGSANLEITUNG.md) (German).
+[BEDIENUNGSANLEITUNG.md](BEDIENUNGSANLEITUNG.md) (German); for installing a complete image
+over USB without ESP-IDF, [USB_FLASH.md](USB_FLASH.md).
 
 ---
 
@@ -37,7 +38,7 @@ Two design decisions shape everything else:
 | Board | ESP32-C3 (USB-Serial/JTAG, development board on **COM7**) |
 | LISY link | UART1: **TX = GPIO7**, **RX = GPIO6**, 115200 baud, 8N1 |
 | Framework | ESP-IDF **v5.5.1** (`C:\Users\bonta\esp\v5.5.1\esp-idf`) |
-| Flash | 4 MB, two OTA partitions of 1.5 MB each |
+| Flash | 4 MB, two OTA partitions of 1856 kB each (1.5 MB before v1.18) |
 
 ### 2.1 GPIO map
 
@@ -268,28 +269,45 @@ where the names are actually needed and costs the device neither RAM nor code.
 - Section format: `[game] [lamps] [coils] [switches] [sounds] [displays]`, entries
   `number=name`. **Coils count from 1, everything else from 0** — the numbers that go over
   the wire. `#` and `;` start a comment.
-- Limits: 32 kB per file (`NAMES_MAX_FILE_SIZE`), file name `NAME.cfg` up to 31 characters
-  from `[A-Za-z0-9._-]` (`repo_valid_filename()` — the same check that guards OTA file
-  names, which is why it lives in `repo.c`).
+- Limits: 32 kB per file (`NAMES_MAX_FILE_SIZE`), path `DEVICE/GAME.cfg` up to 31 characters
+  in total, each part from `[A-Za-z0-9._-]`. `names_valid_path()` splits at the single `/`
+  and checks both halves with `repo_valid_segment()` / `repo_valid_filename()` from
+  `repo.c` — the same characters that guard OTA file names, which is why the check lives
+  there. Since neither `/` nor `..` survives a segment check, that is also what keeps a
+  path from escaping `/names`.
 - Uploads are rejected if they contain control characters other than tab and newline. Bytes
   from `0x80` up stay allowed so UTF-8 names work. That is deliberately not a parser; it
   just keeps a binary blob — which practically always carries NUL bytes — from filling the
   partition.
 - `names_list_json()` reports at most `NAMES_MAX_LIST` (32) files and the caller sizes its
   buffer with `NAMES_LIST_BUF`.
-### 6.2.1 The machine ID is the file name
+### 6.2.1 The machine ID is where the file lives
 
-`names_game_id()` builds `<HW>_<GAME>` from `fa_conn_info_t` — `hw` (LISY opcode `0x00`)
+`names_game_id()` builds `<HW>/<GAME>` from `fa_conn_info_t` — `hw` (LISY opcode `0x00`)
 and `game` (opcode `0x08`). Both are stripped to `[A-Za-z0-9_-]`, **case is preserved**
 because the ID is displayed exactly as it is built. A purely numeric GAME below 1000 is
 padded to three digits; anything else is taken verbatim, because what a future counterpart
 reports as its game key is not ours to guess.
 
-| reported | ID | file |
+| reported | ID | path |
 |---|---|---|
-| `AtariFA` + `2` | `AtariFA_002` | `AtariFA_002.cfg` |
-| `GottFA1` + `4` | `GottFA1_004` | `GottFA1_004.cfg` |
-| `GottFA1` + `superman` | `GottFA1_superman` | `GottFA1_superman.cfg` |
+| `AtariFA` + `2` | `AtariFA/002` | `AtariFA/002.cfg` |
+| `GottFA1` + `4` | `GottFA1/004` | `GottFA1/004.cfg` |
+| `GottFA1` + `superman` | `GottFA1/superman` | `GottFA1/superman.cfg` |
+
+**Up to v1.18 the two parts formed one flat file name** (`AtariFA_002.cfg`). The device name
+became a folder in v1.19 because a flat directory stops being readable once several boards
+and many games share it. Nothing else changed: outward — REST API, NVS, web frontend — a
+naming file is still **one** identifier, just with a slash in it. So `app_config_t` needs no
+second field and the API no second parameter, and because `<hw>/<game>.cfg` is exactly as
+long as the old `<hw>_<game>.cfg`, `NAMES_MAX_NAME` stayed at 32 and `CFG_VERSION` at 5.
+
+Case is ignored on **both** levels: `names_find()` walks the folder first, then the file,
+comparing with `strcasecmp()` each time, and returns the spelling that is actually on the
+partition. Uploading `atarifa/002.cfg` therefore replaces an existing `AtariFA/002.cfg`
+instead of sitting next to it — two spellings would both match one ID and which one won
+would be luck. Deleting the last file of a device removes the folder with it
+(`rmdir_if_empty()`), otherwise empty folders would pile up with no way to remove them.
 
 **Why the hardware name has to be in there:** AtariFA answers opcode 8 with a *single ASCII
 digit* — `fa_control.vhd` sends `ascii_digit(game_info)`, fed from `'0' & (not
@@ -316,15 +334,39 @@ wrong names. A manual pick via **USE** still works and holds until the next conn
 `set_active()` writes to NVS **only when the name actually changes** — otherwise every
 connect would cost a flash write.
 
+**`names_select_for_id()` searches locally and nothing else.** It never reaches out to
+lisy.dev, so a handshake never waits on the network — and never waits for a file that may
+not exist on the server at all. The convenience sits in the frontend instead: when menu 07
+finds the expected file missing, it asks `/api/namefetchlist?dev=…` once and, on a hit,
+offers **GET FROM LISY.DEV**, which chains `namefetch` + `namesel`. The check is skipped in
+AP mode and fails silently otherwise, so the button simply stays hidden when there is no
+answer.
+
+`names_init()` checks a stored selection against **both** the form and the file system.
+Form matters because after the v1.19 switch NVS may still hold a flat old-style name;
+`names_find()` would find that file in the root directory, but `names_open()` rejects it, so
+the selection would look valid and deliver nothing.
+
+**Old files are not migrated.** A device that got 1.18 over the air keeps its `names`
+partition at the old offset including its contents, so flat `<HW>_<GAME>.cfg` files can
+still be lying in the root directory. They are not moved automatically — but they are not
+hidden either: `names_list_json()` lists them with `"old":1`, the frontend strikes them
+through and disables **USE**, and `names_delete()` is the one function that still accepts a
+flat name so they can be cleared out. Hiding them would be worse than showing them; they
+occupy flash either way.
+
 ### 6.2.2 The partition needs a USB flash
 
 ```
-names,    data, littlefs, 0x320000, 0x40000,
+names,    data, littlefs, 0x3C0000, 0x40000,
 ```
 
-256 kB at the previously unused end of the 4 MB flash; `0x380000..0x400000` stays reserve.
-All existing partitions keep their offsets, so **older firmware still boots with this
-table**.
+256 kB at the end of the 4 MB flash = 64 LittleFS blocks of 4 kB. Measured cost on the
+device: the empty file system takes 2 blocks, **each device folder costs 2 more**, and every
+`.cfg` costs 1 (a naming file is about 2.5 kB, so it never fills a second block). Three
+boards with fifteen games each therefore come to 2 + 6 + 45 = 53 blocks, and after garbage
+collection headroom the practical ceiling is around 50 files. Where the partition sits is
+covered in [§ 6.2.3](#623-the-v118-layout-change).
 
 The other direction is the one that matters: **`esp_https_ota` never writes the partition
 table** (it lives at `0x8000`). A device updated only over the air therefore does not have
@@ -332,7 +374,38 @@ the partition. That is not an error case — `names_init()` returns `ESP_ERR_NOT
 `names_ready()` stays false, every naming endpoint answers `No name storage on this
 device`, `/api/config` reports `"namesfs":0` and the frontend hides tile 07. Everything
 else works unchanged. To actually get the partition, flash over USB
-(`idf.py -B … -p COM7 flash`, not `app-flash`).
+(`idf.py -B … -p COM7 flash`, not `app-flash`) — or, without a toolchain, from the browser
+with the web installer of [§ 13](#13-web-installer).
+
+### 6.2.3 The v1.18 layout change
+
+Until v1.17 the table ended at `0x360000` and the last 640 kB of the flash lay unused —
+reserve left over from adding `names`. Meanwhile the application had grown to 78 % of its
+1536 kB slot. v1.18 hands that reserve to the two app slots:
+
+| Partition | v1.17 | v1.18 |
+|---|---|---|
+| `ota_0` | `0x20000`, 1536 kB | `0x20000`, **1856 kB** (`0x1D0000`) |
+| `ota_1` | `0x1A0000`, 1536 kB | `0x1F0000`, **1856 kB** (`0x1D0000`) |
+| `names` | `0x320000`, 256 kB | `0x3C0000`, 256 kB |
+
+`0x20000 + 2 × 0x1D0000 + 0x40000 = 0x400000` — the flash comes out even, every app offset
+stays 64 kB aligned, and `ota_0` deliberately keeps `0x20000` because the web installer
+([§ 13](#13-web-installer)) carries that offset hard-coded.
+
+Three consequences:
+
+- **Only a USB flash brings the new layout**, for the reason given in § 6.2.2. Nothing new —
+  the same rule, applied to the table itself.
+- **Mixed operation holds up to the old slot size.** An ESP-IDF app image is slot
+  independent, so new firmware still runs on a device with the old table — as long as
+  `FA_Control.bin` stays below 1536 kB. Past that point `esp_ota_write()` on such a device
+  fails with `ESP_ERR_INVALID_SIZE` and the update status reports the error. That is the
+  release where the notes have to demand a USB re-install.
+- **Naming files do not survive the move.** The partition changes offset, the installer does
+  not erase (`eraseAll` stays off), so the old content simply sits orphaned at `0x320000`
+  while the new area is formatted on first mount (`format_if_mount_failed`). NVS is
+  untouched at `0x9000`: Wi-Fi credentials, pulse time and the selected naming file survive.
 
 ---
 
@@ -361,11 +434,15 @@ Query parameters only — there is no JSON parsing anywhere. Responses are built
 | `GET /api/fwstatus` | progress (`idle`/`running`/`ok`/`error`, percent, message) |
 | `GET /api/names` | the active naming file, raw `text/plain`, chunked |
 | `GET /api/namelist` | files on the partition + active one + bytes used |
-| `POST /api/namesel?file=AtariFA_002.cfg` | select the active file (empty = none) |
-| `POST /api/namedel?file=AtariFA_002.cfg` | delete a file |
-| `POST /api/nameup?file=AtariFA_002.cfg` | upload — **the only endpoint with a request body** |
-| `GET /api/namefetchlist` | `.cfg` files on lisy.dev as JSON |
-| `POST /api/namefetch?file=AtariFA_002.cfg` | download a naming file from lisy.dev |
+| `POST /api/namesel?file=AtariFA%2F002.cfg` | select the active file (empty = none) |
+| `POST /api/namedel?file=AtariFA%2F002.cfg` | delete a file (also takes a flat old-style name) |
+| `POST /api/nameup?file=AtariFA%2F002.cfg` | upload — **the only endpoint with a request body** |
+| `GET /api/namefetchlist` | device folders on lisy.dev as JSON |
+| `GET /api/namefetchlist?dev=AtariFA` | `.cfg` files inside one folder |
+| `POST /api/namefetch?file=AtariFA%2F002.cfg` | download a naming file from lisy.dev |
+
+The `/` inside a path arrives URL-encoded as `%2F`; `get_param()` decodes it before the
+handler sees it.
 | `GET /*` | captive portal redirect to `/` resp. `http://192.168.4.1/` |
 
 `cfg.max_uri_handlers` in `web_server_start()` must be at least as large as the `uris[]`
@@ -478,15 +555,23 @@ renamed button has to be followed up there.
 - `repo_list_json()` ([`main/repo.c`](../main/repo.c)) fetches the Apache directory index
   and scans it for `href="*<suffix>"` (max 20 entries), sorted descending so the newest is
   first. Naming convention: `FA_Control_vX.YZ.bin`. The naming files under
-  `…/FA_Control/names/` are found the same way, only with `.cfg` — which is why the scanner
-  sits in `repo.c` instead of twice in the callers.
+  `…/FA_Control/names/<DEVICE>/` are found the same way, only with `.cfg` — which is why the
+  scanner sits in `repo.c` instead of twice in the callers.
+  **`suffix = "/"` lists the sub-directories instead of the files**, which is how the device
+  folders are enumerated. The one rule that makes both work from a single loop: slashes are
+  allowed *inside* the suffix only. For `.cfg` that means none at all; for `/` it means the
+  single trailing one — so Apache's parent link `href="/swrep/misc/FA_Control/"` drops out
+  over its remaining slashes and the sort links `href="?C=N;O=D"` over the missing suffix.
+  Folder names come back with the slash still attached, exactly as the listing has them.
 - `fw_update_start()` runs `esp_https_ota` in its own task against the certificate bundle,
   writes to the inactive OTA partition, validates the image, sets the boot partition and
   reboots. Progress is polled via `/api/fwstatus`.
 - Requires STA mode — there is no internet in AP mode, and both endpoints reject with
   `No internet in AP mode`.
-- Partitions: `partitions.csv`, `ota_0` and `ota_1` at 0x20000 / 0x1A0000, 1.5 MB each,
-  `names` (LittleFS) at 0x320000, 256 kB, flash size 4 MB. The running version comes from
+- Partitions: `partitions.csv`, `ota_0` and `ota_1` at 0x20000 / 0x1F0000, 1856 kB each,
+  `names` (LittleFS) at 0x3C0000, 256 kB, flash size 4 MB — see
+  [§ 6.2.3](#623-the-v118-layout-change) for what changed in v1.18 and what it means for
+  devices still carrying the old table. The running version comes from
   `version.txt` (PROJECT_VER) via `esp_app_get_description()`. **An OTA update writes the
   app partition only** — never the partition table, the bootloader or `names`.
 - The httpd task runs with `stack_size = 10240` because the TLS client for the listing
@@ -547,6 +632,18 @@ directory, not to switch venvs.**
 
 ## 12. Release & deploy
 
+There are **three** deploy scripts, and a version bump wants all three. They differ in what
+they publish, not in how they work — WinSCP lookup, `.env` parsing, interactive password
+(Enter = local copy only) and the `IDF_PYTHON_ENV_PATH` pin are identical in all of them.
+
+| Script | Publishes | `.env` variable | Server folder |
+|---|---|---|---|
+| `build_and_deploy.ps1` | `FA_Control_v<version>.bin` — the app alone | `SFTP_PATH` | `…/FA_Control/bin/` |
+| `build_and_deploy_full.ps1` | the four flash files + `version.txt` | `SFTP_PATH_FULL` | `…/FA_Control/esptool/` |
+| `flasher\deploy_flasher.ps1` | the installer page + its manual | `SFTP_PATH_WEB` | `…/FA_Control/flasher/` |
+
+### 12.1 App only — `build_and_deploy.ps1`
+
 ```powershell
 .\build_and_deploy.ps1
 ```
@@ -554,7 +651,79 @@ directory, not to switch venvs.**
 Builds the firmware into the local build directory, copies the binary to
 `releases\FA_Control_v<version>.bin` (version from `version.txt`) and uploads it by
 SFTP/WinSCP to `lisy.dev/swrep/misc/FA_Control/bin/`. Credentials come from a `.env` file
-(template `.env.example`); the password is prompted interactively — pressing Enter without
-one skips the upload and only keeps the local copy.
+(template `.env.example`). That folder is what `fw_update.c` scans, so this is the source
+of every over-the-air update.
 
 **Increment `version.txt` before a release.**
+
+### 12.2 Full package — `build_and_deploy_full.ps1`
+
+```powershell
+.\build_and_deploy_full.ps1
+```
+
+Same build, but it collects everything an `esptool` run writes and puts it in
+`releases\full\`:
+
+| Copied from the build directory | Published as | Address |
+|---|---|---|
+| `bootloader\bootloader.bin` | `bootloader.bin` | `0x0` |
+| `partition_table\partition-table.bin` | `partition-table.bin` | `0x8000` |
+| `ota_data_initial.bin` | `ota_data_initial.bin` | `0xf000` |
+| `FA_Control.bin` | `FA_Control.bin` | `0x20000` |
+
+The addresses are not invented here — they are what `flash_args` in the build directory
+says, and the ESP32-C3 puts the bootloader at `0x0` rather than the `0x1000` of the
+classic ESP32.
+
+Two files travel with the binaries. `version.txt` carries the plain version number and is
+written through `[System.IO.File]::WriteAllText` with `UTF8Encoding($false)` — with a BOM
+the installer page would show an invisible `U+FEFF` in front of the version. And
+`flasher\esptool.htaccess` is uploaded as `.htaccess`, for the CORS reason in § 13.
+
+### 12.3 Installer page — `flasher\deploy_flasher.ps1`
+
+```powershell
+.\flasher\deploy_flasher.ps1
+```
+
+No build. Converts `docs\USB_FLASH.md` to `USB_FLASH.html` with Pandoc and uploads that
+together with `FA_Control_flasher.html`, `logo.png` and `.htaccess`. It reads the `.env`
+from its own folder or from the project root, so the existing one is found. Separate from
+§ 12.2 on purpose: a typo in the manual should not trigger a rebuild.
+
+---
+
+## 13. Web installer
+
+`flasher\FA_Control_flasher.html` is a standalone page — not part of the firmware, not
+served by the device. It writes the § 12.2 package to a bare ESP32-C3 straight from
+Chrome or Edge. Its ancestor is the LISYclock config editor, from which only the USB
+flash was taken; the Bootstrap scaffolding around it was not.
+
+**Mechanism.** `navigator.serial.requestPort()` (Web Serial) hands a port to `esptool-js`,
+pulled in at runtime by `import('https://esm.sh/esptool-js@0.4.1')` — esm.sh bundles its
+dependencies inline, so there is nothing else to host. The four binaries are fetched as
+`ArrayBuffer` and converted to the Latin-1 binary strings esptool-js expects, in 32 kB
+chunks because `String.fromCharCode.apply` blows the stack on a megabyte.
+
+**`eraseAll` stays off, `flashSize` stays `'keep'`.** Only the four addresses are written,
+so NVS (Wi-Fi credentials, pulse time, selected naming file) and the `names` LittleFS
+partition survive an installation. `'keep'` leaves the flash-mode/frequency/size header of
+the bootloader as built — mode, clock and size are already correct in the file.
+
+**Why the CORS header.** The page normally runs on lisy.dev and fetches the binaries from
+a sibling folder — same origin, nothing needed. But opened from disk it has origin `null`,
+and the browser then refuses the download. `flasher\esptool.htaccess` sets
+`Access-Control-Allow-Origin "*"` on the `esptool/` folder for exactly that case, plus
+`no-store` on `.bin`/`.txt` so a cache cannot serve the previous version while
+`version.txt` already announces the new one. In the repository the file cannot be named
+`.htaccess`, because the flasher folder already has its own.
+
+**Visual identity.** The page repeats the `:root` palette of `main/web/index.html`
+verbatim rather than importing it — it lives outside the device and can fetch nothing from
+it. Whoever changes the palette there has to change it here. The log window is, next to
+the seven-segment mock-up of § 8.1, the second deliberately dark island: it is a console
+showing tool output, and it should look like one.
+
+The user-facing side of all this is [USB_FLASH.md](USB_FLASH.md).

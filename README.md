@@ -14,9 +14,10 @@ itself:** FA_Control never announces itself at power-up, and the control menus s
 until the far side actually grants control.
 
 Optionally a **naming file** per machine turns the numbered tiles into speaking names — coil
-7 reads *Knocker* instead of *7*. The file is named after the machine ID the board reports,
-`<hardware>_<game>.cfg` (e.g. `AtariFA_002.cfg`), and is picked up automatically on connect.
-See [`names/example.cfg`](names/example.cfg) for the format.
+7 reads *Knocker* instead of *7*. Where the file lives is the machine ID the board reports:
+a folder per device, the game number as the file name — `<hardware>/<game>.cfg`, e.g.
+`AtariFA/002.cfg`. It is picked up automatically on connect. See
+[`names/example.cfg`](names/example.cfg) for the format.
 
 | | |
 |---|---|
@@ -25,6 +26,7 @@ See [`names/example.cfg`](names/example.cfg) for the format.
 | Framework | ESP-IDF v5.5.1 |
 | Firmware version | see `version.txt` |
 | Releases | [lisy.dev/swrep/misc/FA_Control/bin/](https://lisy.dev/swrep/misc/FA_Control/bin/) — installable over the air from the device itself |
+| Full installation | [web installer](https://lisy.dev/swrep/misc/FA_Control/flasher/FA_Control_flasher.html) — writes bootloader, partition table, OTA data and firmware over USB from Chrome or Edge |
 
 ## Documentation
 
@@ -32,6 +34,7 @@ See [`names/example.cfg`](names/example.cfg) for the format.
 |---|---|
 | [docs/USER_MANUAL.md](docs/USER_MANUAL.md) | Operating the device: DIP switches, LED patterns, Wi-Fi setup, connecting, the menus, firmware updates. No technical detail. |
 | [docs/BEDIENUNGSANLEITUNG.md](docs/BEDIENUNGSANLEITUNG.md) | The same manual in German. |
+| [docs/USB_FLASH.md](docs/USB_FLASH.md) | Full installation over USB with the browser-based installer: when you need it, what it keeps, what to do when it goes wrong. |
 | [docs/TECHNICAL_REFERENCE.md](docs/TECHNICAL_REFERENCE.md) | Firmware internals: GPIO map, power management, connection handshake, LISY command surface, REST API, OTA, build and release procedure. |
 
 ## Quick start
@@ -53,13 +56,18 @@ idf.py -B C:\Users\bonta\esp\build\fa -p COM7 flash monitor
 Note that `flash` (not `app-flash`) is what writes the partition table. Naming files live
 on their own LittleFS partition, and an over-the-air update never touches the table — a
 device that has only seen OTA updates simply reports no naming storage and hides that menu.
+The same applies to the enlarged firmware slots of v1.18 (1856 kB instead of 1536 kB): they
+too arrive only with a full installation. Without ESP-IDF that is available from a browser:
+see [docs/USB_FLASH.md](docs/USB_FLASH.md).
 
 Two traps are worth knowing before the first build — the mandatory **local** build
 directory (`-B`, because `N:` is a UNC network drive) and the **`IDF_PYTHON_ENV_PATH`**
 user variable that pins the ESP-IDF Python to 3.11.2. Both are explained in
 [docs/TECHNICAL_REFERENCE.md § 11](docs/TECHNICAL_REFERENCE.md#11-build--flash).
 
-Releases are built and uploaded with `.\build_and_deploy.ps1` (see § 12 there).
+Releases are built and uploaded with `.\build_and_deploy.ps1` (see § 12 there). The full
+flash package that feeds the web installer comes from `.\build_and_deploy_full.ps1`, the
+installer page itself from `.\flasher\deploy_flasher.ps1` — a version bump wants all three.
 
 ---
 

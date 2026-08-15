@@ -198,8 +198,13 @@ legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;f
   border:1px solid var(--line);background:#F7F0E4;padding:.45rem .6rem;margin-bottom:.4rem;
 }
 .nrow.act{border-color:var(--cu);background:#EADCC7}
+/* Altbestand von vor v1.19: liegt noch flach im Wurzelverzeichnis, laesst sich
+   nur noch loeschen. Zurueckgenommen, damit er nicht wie eine Wahlmoeglichkeit
+   aussieht. */
+.nrow.old{background:transparent;border-style:dashed}
 .nrow .nn{flex:1 1 9rem;font-size:.75rem;color:var(--cu-dk);letter-spacing:.06em;font-weight:700}
 .nrow.act .nn::before{content:"● "}
+.nrow.old .nn{color:var(--dim);font-weight:400;text-decoration:line-through}
 .nrow .nb{font-size:.62rem;color:var(--dim);letter-spacing:.06em}
 .nrow .btn{font-size:.66rem;padding:.28rem .6rem}
 #toast{
@@ -306,13 +311,19 @@ legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;f
 
 <section id="names"><div class="shead"><button class="back">◀ MENU</button><h2>NAMES</h2></div>
   <p class="hint">A NAMING FILE LABELS THE TILES IN LAMPS, COILS, SWITCHES AND SOUND.
-    ONE FILE PER MACHINE, NAMED AFTER ITS ID — THAT FILE IS SELECTED AUTOMATICALLY
-    ON CONNECT. UPPER AND LOWER CASE DO NOT MATTER.</p>
+    ONE FILE PER MACHINE, STORED IN A FOLDER NAMED AFTER THE DEVICE — THAT FILE IS
+    SELECTED AUTOMATICALLY ON CONNECT. UPPER AND LOWER CASE DO NOT MATTER.</p>
   <fieldset><legend>THIS MACHINE</legend>
     <div class="val" style="border-color:var(--cu)">
-      <span>ID</span><b id="nmid">–</b>
+      <span>DEVICE</span><b id="nmdev">–</b>
+    </div>
+    <div class="val" style="border-color:var(--cu)">
+      <span>GAME</span><b id="nmgame">–</b>
     </div>
     <p class="hint" id="nmexp" style="margin:.8rem 0 0">–</p>
+    <div class="row" id="nmgetrow" style="display:none">
+      <button class="btn" id="nmgetnow">GET FROM LISY.DEV</button>
+    </div>
   </fieldset>
   <fieldset><legend>FILES ON THIS DEVICE</legend>
     <div id="nmlist"></div>
@@ -320,21 +331,25 @@ legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;f
   </fieldset>
   <fieldset><legend>ADD A FILE</legend>
     <div class="row" style="margin-top:0">
+      <span class="hint" style="margin:0">DEVICE</span>
+      <input type="text" id="nmupdev" placeholder="AtariFA" style="flex:0 1 9rem">
       <input type="file" id="nmfile" accept=".cfg,text/plain">
       <button class="btn" id="nmup">UPLOAD</button>
     </div>
     <div class="row">
       <button class="btn" id="nmfetch">LOAD LIST FROM LISY.DEV</button>
+      <select id="nmdevsel" style="display:none"></select>
       <select id="nmsel" style="display:none"></select>
       <button class="btn" id="nmget" style="display:none">DOWNLOAD</button>
     </div>
     <div class="row"><span class="hint" id="nmstat" style="margin:0"></span></div>
   </fieldset>
   <fieldset><legend>FILE FORMAT</legend>
-    <p class="hint" style="margin:0">NAME THE FILE AFTER THE ID ABOVE, ENDING IN <b>.cfg</b>.
-      PLAIN TEXT, ONE ENTRY PER LINE. COIL NUMBERS START AT 1, LAMPS, SWITCHES AND SOUNDS
-      START AT 0 — THE SAME NUMBERS THAT GO OVER THE WIRE.</p>
-<pre style="font-size:.68rem;color:var(--txt);margin:.7rem 0 0;overflow-x:auto;font-family:ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--line);padding:.7rem .8rem">AtariFA_002.cfg
+    <p class="hint" style="margin:0">NAME THE FILE AFTER THE GAME ABOVE, ENDING IN <b>.cfg</b>,
+      AND PUT IT IN THE FOLDER OF THE DEVICE. PLAIN TEXT, ONE ENTRY PER LINE.
+      COIL NUMBERS START AT 1, LAMPS, SWITCHES AND SOUNDS START AT 0 — THE SAME NUMBERS
+      THAT GO OVER THE WIRE.</p>
+<pre style="font-size:.68rem;color:var(--txt);margin:.7rem 0 0;overflow-x:auto;font-family:ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--line);padding:.7rem .8rem">AtariFA/002.cfg
 
 [game]
 name=Airborne Avenger
@@ -360,6 +375,10 @@ name=Airborne Avenger
 "use strict";
 var $=function(s){return document.querySelector(s)};
 var cfg=null,pollTimer=null,homeTimer=null;
+/* "sta" oder "ap", aus /api/status. Menue 07 fragt lisy.dev nur, wenn es
+   ueberhaupt Internet geben kann. Solange der Wert noch fehlt, wird gefragt --
+   ein Fehlschlag bleibt still. */
+var wifiMode="";
 
 /* Namen kommen aus einer hochgeladenen Datei -- wo sie ausnahmsweise per
    innerHTML gesetzt werden, muessen sie vorher entschaerft sein. */
@@ -615,20 +634,61 @@ function nmRefreshAll(){
   getj("/api/config",function(c){cfg=c;namesLoadedFor=null;build();nmList()})}
 
 /* Kennung der angeschlossenen Anlage und ob die dazu passende Datei da ist.
-   cfg.gameid kommt vom ESP (<HW>_<GAME>) und ist ohne Verbindung leer. */
+   cfg.gameid kommt vom ESP als <DEVICE>/<GAME> und ist ohne Verbindung leer. */
 function nmMachine(files){
   var id=cfg&&cfg.gameid?cfg.gameid:"";
-  $("#nmid").textContent=id||"–";
+  var slash=id.indexOf("/");
+  var dev=slash>0?id.slice(0,slash):"",game=slash>0?id.slice(slash+1):"";
+  $("#nmdev").textContent=dev||"–";
+  $("#nmgame").textContent=game||"–";
   if(!id){
     $("#nmexp").textContent="CONNECT FIRST TO SEE THE ID OF THIS MACHINE";
     return}
+  /* Das Ziel des Uploads vorbelegen -- meistens will man genau diese Maschine. */
+  if(!$("#nmupdev").value)$("#nmupdev").value=dev;
   var want=id+".cfg",have=null;
   (files||[]).forEach(function(f){
-    if(f.n.toLowerCase()===want.toLowerCase())have=f.n});
-  $("#nmexp").textContent=have
-    ? "FILE "+have.toUpperCase()+" — IN USE"
-    : "EXPECTED FILE: "+want.toUpperCase()+
-      " — NOT ON THIS DEVICE, UPLOAD IT OR LOAD IT FROM LISY.DEV";
+    if(!f.old&&f.n.toLowerCase()===want.toLowerCase())have=f.n});
+  $("#nmgetrow").style.display="none";
+  if(have){
+    $("#nmexp").textContent="FILE "+have.toUpperCase()+" — IN USE";
+    return}
+  $("#nmexp").textContent="EXPECTED FILE: "+want.toUpperCase()+
+    " — NOT ON THIS DEVICE, UPLOAD IT OR LOAD IT FROM LISY.DEV";
+  /* Nachsehen, ob es sie auf lisy.dev gibt -- dann genuegt ein Klick statt der
+     Suche durch zwei Auswahllisten. Im AP-Modus gibt es kein Internet; ohne
+     Netz scheitert die Anfrage still, der Knopf bleibt dann einfach aus. */
+  if(wifiMode==="ap")return;
+  fetch("/api/namefetchlist?dev="+encodeURIComponent(dev)).then(function(r){
+    return r.ok?r.json():null}).then(function(j){
+    if(!j||!j.files)return;
+    var leaf=game+".cfg",hit=null;
+    j.files.forEach(function(f){if(f.toLowerCase()===leaf.toLowerCase())hit=f});
+    if(!hit)return;
+    $("#nmexp").textContent="EXPECTED FILE: "+want.toUpperCase()+
+      " — NOT ON THIS DEVICE, BUT AVAILABLE ON LISY.DEV";
+    $("#nmgetrow").style.display="";
+    $("#nmgetnow").onclick=function(){nmGetForMachine(dev+"/"+hit)}
+  }).catch(function(){})
+}
+
+/* Holen und gleich aktivieren -- gefragt war die Datei zu dieser Maschine, also
+   soll sie danach auch auf den Kacheln stehen. */
+function nmGetForMachine(path){
+  $("#nmgetnow").disabled=true;
+  $("#nmstat").textContent="DOWNLOADING "+path.toUpperCase()+" …";
+  fetch("/api/namefetch?file="+encodeURIComponent(path),{method:"POST"})
+    .then(function(r){
+      if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+      return fetch("/api/namesel?file="+encodeURIComponent(path),{method:"POST"})})
+    .then(function(r){
+      if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+      $("#nmstat").textContent="";
+      toast("USING "+path.toUpperCase());
+      $("#nmgetnow").disabled=false;nmRefreshAll()})
+    .catch(function(e){
+      $("#nmstat").textContent="ERROR: "+e.message.toUpperCase();
+      $("#nmgetnow").disabled=false})
 }
 
 function nmList(){
@@ -639,14 +699,18 @@ function nmList(){
       box.innerHTML='<p class="hint" style="margin:0">NO NAMING FILES YET — '+
         'UPLOAD ONE BELOW OR LOAD IT FROM LISY.DEV.</p>';
     } else {
+      var anyOld=false;
       j.files.forEach(function(f){
+        if(f.old)anyOld=true;
         var row=document.createElement("div");
-        row.className="nrow"+(f.n===j.active?" act":"");
+        row.className="nrow"+(f.n===j.active?" act":"")+(f.old?" old":"");
         var nn=document.createElement("span");nn.className="nn";nn.textContent=f.n;
         var nb=document.createElement("span");nb.className="nb";nb.textContent=f.s+" B";
         var use=document.createElement("button");use.className="btn";
-        use.textContent=(f.n===j.active)?"IN USE":"USE";
-        use.disabled=(f.n===j.active);
+        /* Altbestand laesst sich nicht mehr auswaehlen -- er liegt am falschen
+           Ort und wuerde beim Verbinden ohnehin nicht gefunden. */
+        use.textContent=f.old?"OLD":((f.n===j.active)?"IN USE":"USE");
+        use.disabled=(f.old||f.n===j.active);
         use.onclick=function(){api("/api/namesel?file="+encodeURIComponent(f.n),
           function(){toast("USING "+f.n.toUpperCase());nmRefreshAll()})};
         var del=document.createElement("button");del.className="btn warn";
@@ -656,51 +720,100 @@ function nmList(){
           api("/api/namedel?file="+encodeURIComponent(f.n),
             function(){toast("DELETED");nmRefreshAll()})};
         row.appendChild(nn);row.appendChild(nb);row.appendChild(use);row.appendChild(del);
-        box.appendChild(row)})}
+        box.appendChild(row)});
+      if(anyOld){
+        var p=document.createElement("p");p.className="hint";p.style.margin=".6rem 0 0";
+        p.textContent="STRUCK-THROUGH ENTRIES USE THE OLD NAMING SCHEME AND ARE NO LONGER "+
+          "FOUND. UPLOAD THEM INTO A DEVICE FOLDER, THEN DELETE THEM TO FREE THE SPACE.";
+        box.appendChild(p)}}
     $("#nmfree").textContent=(j.total)
       ? "STORAGE: "+j.used+" OF "+j.total+" BYTES USED"
       : "STORAGE: –";
   })}
 
+/* Dateien aus der Zeit vor v1.19 heissen noch <DEVICE>_<GAME>.cfg. Wer eine
+   solche waehlt, soll sie nicht von Hand umbenennen muessen -- am ersten
+   Unterstrich zerlegt ergibt sie genau Ordner und Datei. */
+$("#nmfile").onchange=function(){
+  var f=this.files[0];if(!f)return;
+  var m=/^([A-Za-z0-9.-]+)_(.+\.cfg)$/i.exec(f.name);
+  if(m){$("#nmupdev").value=m[1];$("#nmstat").textContent=
+    "OLD-STYLE NAME — WILL BE STORED AS "+(m[1]+"/"+m[2]).toUpperCase()}
+};
+
 $("#nmup").onclick=function(){
   var f=$("#nmfile").files[0];
   if(!f){toast("CHOOSE A FILE FIRST");return}
   if(!/\.cfg$/i.test(f.name)){toast("FILE MUST END IN .cfg");return}
-  $("#nmstat").textContent="UPLOADING "+f.name.toUpperCase()+" …";
-  fetch("/api/nameup?file="+encodeURIComponent(f.name),{method:"POST",body:f})
+  var dev=$("#nmupdev").value.trim();
+  /* Altname? Dann steckt der Dateiname selbst schon beides. */
+  var leaf=f.name,m=/^([A-Za-z0-9.-]+)_(.+\.cfg)$/i.exec(f.name);
+  if(m){if(!dev)dev=m[1];leaf=m[2]}
+  if(!dev){toast("ENTER THE DEVICE FIRST");return}
+  var path=dev+"/"+leaf;
+  $("#nmstat").textContent="UPLOADING "+path.toUpperCase()+" …";
+  fetch("/api/nameup?file="+encodeURIComponent(path),{method:"POST",body:f})
     .then(function(r){
       if(!r.ok)return r.text().then(function(t){throw new Error(t)});
-      $("#nmstat").textContent="UPLOADED "+f.name.toUpperCase();
+      $("#nmstat").textContent="UPLOADED "+path.toUpperCase();
       $("#nmfile").value="";nmRefreshAll()})
     .catch(function(e){$("#nmstat").textContent="ERROR: "+e.message.toUpperCase()})};
 
+/* Zweistufig wie die Ablage selbst: erst die Geraeteordner, dann deren Inhalt.
+   Die Ordnernamen kommen mit Schraegstrich, so wie sie im Listing stehen. */
+function nmFillSel(sel,items){
+  sel.innerHTML="";
+  items.forEach(function(f){
+    var o=document.createElement("option");o.value=f;o.textContent=f;
+    sel.appendChild(o)});
+  sel.style.display="inline-block";
+}
+
 $("#nmfetch").onclick=function(){
-  $("#nmstat").textContent="LOADING LIST FROM LISY.DEV …";
+  $("#nmstat").textContent="LOADING DEVICES FROM LISY.DEV …";
+  $("#nmsel").style.display="none";$("#nmget").style.display="none";
   fetch("/api/namefetchlist").then(function(r){
     if(!r.ok)return r.text().then(function(t){throw new Error(t)});
     return r.json()}).then(function(j){
-    var sel=$("#nmsel");sel.innerHTML="";
-    if(!j.files.length){$("#nmstat").textContent="NO FILES FOUND";return}
-    j.files.forEach(function(f){
-      var o=document.createElement("option");o.value=f;o.textContent=f;
-      sel.appendChild(o)});
-    sel.style.display="inline-block";$("#nmget").style.display="inline-block";
-    $("#nmstat").textContent=j.files.length+" FILE(S) AVAILABLE"
+    var devs=(j.files||[]).map(function(f){return f.replace(/\/$/,"")});
+    if(!devs.length){$("#nmstat").textContent="NO DEVICES FOUND";return}
+    nmFillSel($("#nmdevsel"),devs);
+    /* Ist eine Maschine angeschlossen, ist ihr Ordner die richtige Vorauswahl. */
+    var dev=$("#nmupdev").value.trim();
+    devs.forEach(function(d){if(d.toLowerCase()===dev.toLowerCase())$("#nmdevsel").value=d});
+    nmDevFiles()
   }).catch(function(e){$("#nmstat").textContent="ERROR: "+e.message.toUpperCase()})};
 
+function nmDevFiles(){
+  var dev=$("#nmdevsel").value;if(!dev)return;
+  $("#nmstat").textContent="LOADING "+dev.toUpperCase()+" …";
+  $("#nmsel").style.display="none";$("#nmget").style.display="none";
+  fetch("/api/namefetchlist?dev="+encodeURIComponent(dev)).then(function(r){
+    if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+    return r.json()}).then(function(j){
+    if(!j.files.length){$("#nmstat").textContent="NO FILES IN "+dev.toUpperCase();return}
+    nmFillSel($("#nmsel"),j.files);
+    $("#nmget").style.display="inline-block";
+    $("#nmstat").textContent=j.files.length+" FILE(S) IN "+dev.toUpperCase()
+  }).catch(function(e){$("#nmstat").textContent="ERROR: "+e.message.toUpperCase()})}
+
+$("#nmdevsel").onchange=nmDevFiles;
+
 $("#nmget").onclick=function(){
-  var f=$("#nmsel").value;if(!f)return;
-  $("#nmstat").textContent="DOWNLOADING "+f.toUpperCase()+" …";
-  fetch("/api/namefetch?file="+encodeURIComponent(f),{method:"POST"})
+  var dev=$("#nmdevsel").value,f=$("#nmsel").value;if(!dev||!f)return;
+  var path=dev+"/"+f;
+  $("#nmstat").textContent="DOWNLOADING "+path.toUpperCase()+" …";
+  fetch("/api/namefetch?file="+encodeURIComponent(path),{method:"POST"})
     .then(function(r){
       if(!r.ok)return r.text().then(function(t){throw new Error(t)});
-      $("#nmstat").textContent="DOWNLOADED "+f.toUpperCase();nmRefreshAll()})
+      $("#nmstat").textContent="DOWNLOADED "+path.toUpperCase();nmRefreshAll()})
     .catch(function(e){$("#nmstat").textContent="ERROR: "+e.message.toUpperCase()})};
 
 /* ---- Start ---- */
 function init(){
   getj("/api/config",function(c){cfg=c;build()});
   getj("/api/status",function(s){
+    wifiMode=s.mode;
     $("#status").innerHTML="V<b>"+s.ver+"</b> · WI-FI <b>"+s.mode.toUpperCase()+
       "</b> · IP <b>"+s.ip+"</b>";
     $("#fwver").textContent="INSTALLED VERSION: "+s.ver;

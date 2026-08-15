@@ -2,13 +2,20 @@
 nvs,      data, nvs,     0x9000,   0x6000,
 otadata,  data, ota,     0xf000,   0x2000,
 phy_init, data, phy,     0x11000,  0x1000,
-ota_0,    app,  ota_0,   0x20000,  0x180000,
-ota_1,    app,  ota_1,   0x1A0000, 0x180000,
-# Namensdateien (LittleFS). Liegt am bis dahin unbelegten Flash-Ende, damit alle
-# bestehenden Partitionen auf ihren Offsets bleiben -- eine aeltere Firmware
-# bootet mit dieser Tabelle unveraendert weiter. Umgekehrt gilt: die Tabelle
-# selbst (0x8000) wird von esp_https_ota NICHT geschrieben, ein per OTA
-# aktualisiertes Geraet findet die Partition also nicht. names_init() faellt
-# dann sauber auf "keine Namen" zurueck. 0x40000 = 256 KB ~ 50 Spiele;
-# 0x380000..0x400000 bleibt Reserve.
-names,    data, littlefs, 0x320000, 0x40000,
+# Seit v1.18 je 1856 kB statt 1536 kB. Bis dahin endete die Tabelle bei 0x360000 und
+# die letzten 640 kB des 4-MB-Flash lagen als Reserve brach -- die Anwendung stand
+# gleichzeitig schon bei 78 % von ota_0. Die Reserve ist nun auf beide Slots verteilt;
+# 0x20000 + 2*0x1D0000 + 0x40000 = 0x400000 geht genau auf.
+#
+# ota_0 bleibt bewusst auf 0x20000: die Installerseite (flasher/FA_Control_flasher.html)
+# traegt diesen Offset fest verdrahtet.
+ota_0,    app,  ota_0,   0x20000,  0x1D0000,
+ota_1,    app,  ota_1,   0x1F0000, 0x1D0000,
+# Namensdateien (LittleFS), 256 kB ~ 55 Spiele. Die Partition ist mit v1.18 von
+# 0x320000 ans Flash-Ende gewandert; ihr *Inhalt* ueberlebt diesen Umzug nicht --
+# der neue Bereich wird beim ersten Mount formatiert (format_if_mount_failed).
+# Die Tabelle selbst (0x8000) schreibt esp_https_ota NICHT: ein per OTA aktualisiertes
+# Geraet behaelt das alte Layout samt alter names-Position und laeuft dort unveraendert
+# weiter. Neue Grenze fuer diesen Mischbetrieb ist die alte Slotgroesse -- solange
+# FA_Control.bin unter 1536 kB bleibt, laesst sich ein Altgeraet weiter per OTA versorgen.
+names,    data, littlefs, 0x3C0000, 0x40000,

@@ -221,44 +221,48 @@ appears under the number on every tile in `LAMPS`, `COILS`, `SWITCHES` and `SOUN
 hovering a tile shows the full name. **The number always stays the leading label** — it is
 the number that actually goes to the machine.
 
-At the top of the menu, **THIS MACHINE** shows the **ID** of the machine you are connected
-to, for example `AtariFA_002`, and whether the matching file is present. That ID is the
-file name: **`AtariFA_002.cfg`**. Read it there rather than working it out — connect first,
-then look.
+At the top of the menu, **THIS MACHINE** shows the **DEVICE** and the **GAME** of the
+machine you are connected to — for example `AtariFA` and `002` — and whether the matching
+file is present. Together they say where the file belongs: in the folder `AtariFA`, under
+the name **`002.cfg`**. Read it there rather than working it out — connect first, then look.
 
-*FILES ON THIS DEVICE* lists what is stored. **USE** activates a file (the active one is
-marked ●), **DELETE** removes it. The selection survives a restart.
+*FILES ON THIS DEVICE* lists what is stored, as `DEVICE/FILE`. **USE** activates a file (the
+active one is marked ●), **DELETE** removes it. The selection survives a restart.
 
 There are two ways to add a file:
 
-- **UPLOAD** — pick a `.cfg` file from your phone or computer and press **UPLOAD**. This
+- **UPLOAD** — type the **DEVICE**, pick a `.cfg` file from your phone or computer and press
+  **UPLOAD**. When you are connected, the device box is already filled in for you. This
   works in the machine's own `FA-Control` network too, so it is the way that always works,
   even in a cellar without reception.
-- **LOAD LIST FROM LISY.DEV** — fetches the files published on lisy.dev, then **DOWNLOAD**
-  copies the selected one onto the device. This needs your home network; the button is
-  disabled in AP mode.
+- **LOAD LIST FROM LISY.DEV** — first pick the device, then the file, then **DOWNLOAD**
+  copies it onto the device. This needs your home network; the button is disabled in AP mode.
 
-**How the ID is built:** it is the **hardware name** the board reports plus the **game
-number**, three digits with leading zeros — `AtariFA` and game 2 give `AtariFA_002`. On
-AtariFA the game number is the position of the game select DIP bank:
+**How the two parts are built:** the folder is the **hardware name** the board reports, the
+file is the **game number**, three digits with leading zeros — `AtariFA` and game 2 give
+`AtariFA/002.cfg`. On AtariFA the game number is the position of the game select DIP bank:
 
-| ID | Machine |
+| Folder and file | Machine |
 |---|---|
-| `AtariFA_000` | The Atarians |
-| `AtariFA_001` | Time 2000 |
-| `AtariFA_002` | Airborne Avenger |
-| `AtariFA_003` | Middle Earth |
-| `AtariFA_004` | Space Riders |
+| `AtariFA/000.cfg` | The Atarians |
+| `AtariFA/001.cfg` | Time 2000 |
+| `AtariFA/002.cfg` | Airborne Avenger |
+| `AtariFA/003.cfg` | Middle Earth |
+| `AtariFA/004.cfg` | Space Riders |
 
-The hardware name has to be part of it because the game numbers start over on every board —
-on a GottFA1 for Gottlieb System 1 the files are called `GottFA1_000.cfg` and so on, and
-they must not collide with the Atari ones.
+The device folder is what keeps them apart, because the game numbers start over on every
+board — on a GottFA1 for Gottlieb System 1 the files are `GottFA1/000.cfg` and so on.
 
-**Upper and lower case do not matter.** `atarifa_002.cfg` works just as well; if you upload
-a file that already exists under a different spelling, it replaces that one instead of
-sitting next to it.
+**Upper and lower case do not matter**, in the folder or in the file name. `atarifa/002.cfg`
+works just as well; if you upload a file that already exists under a different spelling, it
+replaces that one instead of sitting next to it.
 
-The ID itself carries no readable name — that is what the `[game] name=` line inside the
+> **Coming from a version before 1.19?** Back then both parts formed a single file name,
+> `AtariFA_002.cfg`. Such files still on the device are shown struck through and can only be
+> deleted — pick one for **UPLOAD** and FA_Control will split the name for you, then delete
+> the old entry to free the space.
+
+Neither part carries a readable name — that is what the `[game] name=` line inside the
 file is for. FA_Control shows it in brackets on the home screen: `GAME 2 (AIRBORNE
 AVENGER)`.
 
@@ -268,11 +272,17 @@ deliberate — otherwise, after switching the machine to a different game, you w
 seeing the previous game's names without noticing. A file picked by hand with **USE** stays
 active until the next **CONNECT**.
 
+**CONNECT only looks at files already on the device** — it never fetches anything from
+lisy.dev by itself, so connecting stays as quick as it is. What it does instead: open menu
+**07 · NAMES** and, if the expected file is missing but published on lisy.dev, *THIS
+MACHINE* says so and offers **GET FROM LISY.DEV**. One click downloads it and puts it
+straight to use.
+
 The **FILE FORMAT** box at the bottom of the menu shows the layout. It is plain text, one
 `number=name` line per entry, grouped in sections:
 
 ```
-AtariFA_002.cfg
+AtariFA/002.cfg
 
 [game]
 name=Airborne Avenger
@@ -292,7 +302,8 @@ everything else stays numeric. Maximum 32 kB per file.
 
 > If tile 07 is missing entirely, your device has no storage for naming files. That happens
 > when it was only ever updated over the air: the storage area has to be set up once by
-> flashing over USB. Everything else works exactly the same without it.
+> flashing over USB — see [USB_FLASH.md](USB_FLASH.md), which does that from a browser
+> without any development tools. Everything else works exactly the same without it.
 
 ---
 
@@ -331,6 +342,23 @@ the button is disabled there.
 **Do not switch the device off or flip DIP 1 during the update.** An interrupted update is
 not dangerous — the old version is kept and boots again — but the procedure then starts
 over.
+
+### Full installation over USB
+
+An over-the-air update replaces the firmware and nothing else. Sometimes that is not
+enough: a brand-new board has no firmware to start from, a device that has only ever been
+updated over the air is missing the storage for naming files, and a device that no longer
+boots cannot fetch anything for itself.
+
+For those cases there is a **web installer** that writes the complete image over a USB
+cable, straight from Chrome or Edge, with nothing to install on your computer:
+<https://lisy.dev/swrep/misc/FA_Control/flasher/FA_Control_flasher.html>
+
+Your Wi-Fi settings and uploaded naming files survive it — with one exception: if the
+device is still older than version 1.18, that release moves the naming storage and it
+starts out empty, so you upload the files once more. The full procedure, including
+what to do when the device does not appear in the browser dialog, is in
+[USB_FLASH.md](USB_FLASH.md).
 
 ---
 

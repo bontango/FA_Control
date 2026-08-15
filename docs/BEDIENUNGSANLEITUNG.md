@@ -233,46 +233,56 @@ und `SOUND`; wer mit dem Zeiger auf einer Kachel stehenbleibt, sieht den vollen 
 **Die Nummer bleibt immer die führende Beschriftung** — sie ist die Nummer, die tatsächlich
 zur Anlage geht.
 
-Ganz oben im Menü zeigt **THIS MACHINE** die **Kennung** der angeschlossenen Anlage, zum
-Beispiel `AtariFA_002`, und ob die passende Datei vorhanden ist. Diese Kennung ist der
-Dateiname: **`AtariFA_002.cfg`**. Lesen Sie sie dort ab, statt sie sich herzuleiten — erst
-verbinden, dann nachsehen.
+Ganz oben im Menü zeigt **THIS MACHINE** das **DEVICE** und das **GAME** der
+angeschlossenen Anlage — zum Beispiel `AtariFA` und `002` — und ob die passende Datei
+vorhanden ist. Zusammen sagen sie, wohin die Datei gehört: in den Ordner `AtariFA`, unter
+dem Namen **`002.cfg`**. Lesen Sie das dort ab, statt es sich herzuleiten — erst verbinden,
+dann nachsehen.
 
-*FILES ON THIS DEVICE* listet auf, was gespeichert ist. **USE** aktiviert eine Datei (die
-aktive ist mit ● markiert), **DELETE** entfernt sie. Die Auswahl übersteht einen Neustart.
+*FILES ON THIS DEVICE* listet auf, was gespeichert ist, als `DEVICE/DATEI`. **USE**
+aktiviert eine Datei (die aktive ist mit ● markiert), **DELETE** entfernt sie. Die Auswahl
+übersteht einen Neustart.
 
 Zum Hinzufügen gibt es zwei Wege:
 
-- **UPLOAD** — eine `.cfg`-Datei vom Telefon oder Rechner auswählen und **UPLOAD** drücken.
-  Das funktioniert auch im geräteeigenen Netz `FA-Control` und ist damit der Weg, der immer
-  geht, auch im Keller ohne Empfang.
-- **LOAD LIST FROM LISY.DEV** — holt die auf lisy.dev veröffentlichten Dateien, **DOWNLOAD**
-  kopiert die ausgewählte auf das Gerät. Dafür braucht das Gerät Ihr Heimnetz; im AP-Modus
-  ist die Schaltfläche gesperrt.
+- **UPLOAD** — das **DEVICE** eintragen, eine `.cfg`-Datei vom Telefon oder Rechner
+  auswählen und **UPLOAD** drücken. Bei bestehender Verbindung ist das Feld schon
+  ausgefüllt. Das funktioniert auch im geräteeigenen Netz `FA-Control` und ist damit der
+  Weg, der immer geht, auch im Keller ohne Empfang.
+- **LOAD LIST FROM LISY.DEV** — erst das Gerät wählen, dann die Datei, dann kopiert
+  **DOWNLOAD** sie auf das Gerät. Dafür braucht das Gerät Ihr Heimnetz; im AP-Modus ist die
+  Schaltfläche gesperrt.
 
-**Wie die Kennung gebildet wird:** aus dem **Hardware-Namen**, den die Platine meldet, und
-der **Spielnummer**, dreistellig mit führenden Nullen — `AtariFA` und Spiel 2 ergeben
-`AtariFA_002`. Bei AtariFA ist die Spielnummer die Stellung der Spielwahl-DIP-Bank:
+**Wie sich die beiden Teile ergeben:** der Ordner ist der **Hardware-Name**, den die Platine
+meldet, die Datei die **Spielnummer**, dreistellig mit führenden Nullen — `AtariFA` und
+Spiel 2 ergeben `AtariFA/002.cfg`. Bei AtariFA ist die Spielnummer die Stellung der
+Spielwahl-DIP-Bank:
 
-| Kennung | Anlage |
+| Ordner und Datei | Anlage |
 |---|---|
-| `AtariFA_000` | The Atarians |
-| `AtariFA_001` | Time 2000 |
-| `AtariFA_002` | Airborne Avenger |
-| `AtariFA_003` | Middle Earth |
-| `AtariFA_004` | Space Riders |
+| `AtariFA/000.cfg` | The Atarians |
+| `AtariFA/001.cfg` | Time 2000 |
+| `AtariFA/002.cfg` | Airborne Avenger |
+| `AtariFA/003.cfg` | Middle Earth |
+| `AtariFA/004.cfg` | Space Riders |
 
-Der Hardware-Name muss darin vorkommen, weil die Spielnummern auf jeder Platine wieder bei
-0 anfangen — auf einer GottFA1 für Gottlieb System 1 heißen die Dateien `GottFA1_000.cfg`
-und so fort, und sie dürfen sich mit den Atari-Dateien nicht ins Gehege kommen.
+Der Geräteordner hält sie auseinander, weil die Spielnummern auf jeder Platine wieder bei 0
+anfangen — auf einer GottFA1 für Gottlieb System 1 heißen die Dateien `GottFA1/000.cfg` und
+so fort.
 
-**Groß- und Kleinschreibung spielt keine Rolle.** `atarifa_002.cfg` funktioniert genauso;
-laden Sie eine Datei hoch, die es schon in anderer Schreibweise gibt, ersetzt sie diese,
-statt sich danebenzulegen.
+**Groß- und Kleinschreibung spielt keine Rolle**, weder beim Ordner noch beim Dateinamen.
+`atarifa/002.cfg` funktioniert genauso; laden Sie eine Datei hoch, die es schon in anderer
+Schreibweise gibt, ersetzt sie diese, statt sich danebenzulegen.
 
-Die Kennung selbst trägt keinen lesbaren Namen — dafür gibt es die Zeile `[game] name=` in
-der Datei. FA_Control zeigt ihn auf der Startseite in Klammern: `GAME 2 (AIRBORNE
-AVENGER)`.
+> **Kommen Sie von einer Version vor 1.19?** Damals bildeten beide Teile einen einzigen
+> Dateinamen, `AtariFA_002.cfg`. Solche Dateien auf dem Gerät werden durchgestrichen
+> angezeigt und lassen sich nur noch löschen — wählen Sie eine davon für **UPLOAD** aus,
+> dann zerlegt FA_Control den Namen von selbst; danach den alten Eintrag löschen, das gibt
+> den Platz wieder frei.
+
+Weder Ordner noch Dateiname tragen einen lesbaren Namen — dafür gibt es die Zeile
+`[game] name=` in der Datei. FA_Control zeigt ihn auf der Startseite in Klammern:
+`GAME 2 (AIRBORNE AVENGER)`.
 
 **Automatische Auswahl beim CONNECT:** Die passende Datei wird aktiviert. **Gibt es keine
 passende Datei, wird die Auswahl geleert** und die Kacheln zeigen wieder nur Nummern. Das
@@ -280,11 +290,17 @@ ist Absicht — sonst sähen Sie nach dem Umschalten auf ein anderes Spiel weite
 des vorherigen, ohne es zu merken. Eine von Hand über **USE** gewählte Datei bleibt bis zum
 nächsten **CONNECT** aktiv.
 
+**Der CONNECT sieht nur nach, was schon auf dem Gerät liegt** — er holt von sich aus nichts
+von lisy.dev, damit das Verbinden so schnell bleibt, wie es ist. Stattdessen: Menü
+**07 · NAMES** öffnen. Fehlt die erwartete Datei, ist sie aber auf lisy.dev veröffentlicht,
+sagt *THIS MACHINE* das und bietet **GET FROM LISY.DEV** an. Ein Klick lädt sie und nimmt
+sie gleich in Gebrauch.
+
 Der Kasten **FILE FORMAT** am Ende des Menüs zeigt den Aufbau. Es ist reiner Text, je
 Eintrag eine Zeile `nummer=name`, gruppiert in Abschnitte:
 
 ```
-AtariFA_002.cfg
+AtariFA/002.cfg
 
 [game]
 name=Airborne Avenger
@@ -305,7 +321,9 @@ Höchstens 32 kB je Datei.
 
 > Fehlt die Kachel 07 ganz, hat Ihr Gerät keinen Speicherbereich für Namensdateien. Das ist
 > der Fall, wenn es bisher nur über die Luft aktualisiert wurde: der Bereich muss einmalig
-> per USB eingerichtet werden. Alles andere funktioniert auch ohne ihn unverändert.
+> per USB eingerichtet werden — das geht ohne Entwicklungswerkzeuge direkt im Browser, siehe
+> § 9, Abschnitt *Vollinstallation über USB*. Alles andere funktioniert auch ohne ihn
+> unverändert.
 
 ---
 
@@ -346,6 +364,27 @@ und die Schaltfläche ist dann gesperrt.
 **Während des Updates das Gerät nicht ausschalten und DIP 1 nicht umlegen.** Ein
 abgebrochenes Update ist zwar nicht gefährlich — die alte Version bleibt erhalten und
 startet wieder —, aber der Vorgang beginnt dann von vorn.
+
+### Vollinstallation über USB
+
+Ein Update über die Luft tauscht die Firmware und sonst nichts. Manchmal reicht das nicht:
+eine fabrikneue Platine hat noch gar keine Firmware, einem Gerät, das bisher nur über die
+Luft aktualisiert wurde, fehlt der Speicherbereich für Namensdateien, und ein Gerät, das
+nicht mehr startet, kann sich selbst nichts mehr holen.
+
+Für diese Fälle gibt es eine **Installationsseite im Browser**, die das komplette Abbild
+über ein USB-Kabel schreibt — mit Chrome oder Edge, ohne dass auf dem Rechner etwas
+installiert werden müsste:
+<https://lisy.dev/swrep/misc/FA_Control/flasher/FA_Control_flasher.html>
+
+WLAN-Einstellungen und hochgeladene Namensdateien bleiben dabei erhalten — mit einer
+Ausnahme: Ist auf dem Gerät noch eine Version vor 1.18, wandert der Speicherbereich für die
+Namensdateien und beginnt leer; sie sind dann einmalig neu hochzuladen. Wichtig ist nur:
+**DIP 1 muss auf ON stehen** — im Tiefschlaf meldet sich das Gerät gar nicht erst am USB an
+und taucht im Auswahlfenster des Browsers nicht auf.
+
+> Die ausführliche Anleitung dazu gibt es nur auf Englisch:
+> [USB_FLASH.md](USB_FLASH.md).
 
 ---
 

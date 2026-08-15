@@ -21,7 +21,11 @@
 #define REPO_MAX_NAME  64
 
 /* Verzeichnis-Listing holen und als {"files":["a.bin","b.bin"]} ablegen,
- * absteigend sortiert (neueste Version zuerst). */
+ * absteigend sortiert (neueste Version zuerst).
+ *
+ * suffix = "/" listet die UNTERVERZEICHNISSE statt der Dateien -- Apache
+ * schreibt sie als href="AtariFA/". Die Namen kommen dann mit Schraegstrich am
+ * Ende, so wie sie im Listing stehen. */
 esp_err_t repo_list_json(const char *base_url, const char *suffix,
                          char *out, size_t out_len);
 
@@ -30,7 +34,11 @@ esp_err_t repo_list_json(const char *base_url, const char *suffix,
 esp_err_t repo_download_to_file(const char *base_url, const char *file,
                                 FILE *fp, size_t max_len);
 
-/* Dateinamen pruefen, bevor er in eine URL oder einen Pfad eingesetzt wird:
- * Laenge < max_len, Endung == suffix, nur [A-Za-z0-9._-]. Das schliesst "..",
- * "/" und alles andere aus, was aus dem Verzeichnis herausfuehren koennte. */
+/* Ein Pfadstueck pruefen: nicht leer, Laenge < max_len, nur [A-Za-z0-9._-] und
+ * weder "." noch "..". Damit ist ausgeschlossen, was aus dem Verzeichnis
+ * herausfuehren koennte -- "/" ist im Zeichenvorrat gar nicht erst enthalten. */
+bool repo_valid_segment(const char *seg, size_t max_len);
+
+/* Wie repo_valid_segment(), zusaetzlich muss die Endung passen und vor ihr noch
+ * etwas stehen. */
 bool repo_valid_filename(const char *file, const char *suffix, size_t max_len);

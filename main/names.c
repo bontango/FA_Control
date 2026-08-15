@@ -39,9 +39,47 @@ static bool s_ready;
 
 /* ---- Pfade und Namen ------------------------------------------------------ */
 
-bool names_valid_filename(const char *file)
+/* "AtariFA/002.cfg" in seine beiden Teile zerlegen. Genau ein Schraegstrich,
+ * beide Seiten nicht leer -- alles andere ist kein gueltiger Ort. */
+static bool split_path(const char *path, char *dev, size_t devlen,
+                       char *file, size_t filelen)
 {
-    return repo_valid_filename(file, NAMES_SUFFIX, NAMES_MAX_NAME);
+    if (!path) {
+        return false;
+    }
+    const char *slash = strchr(path, '/');
+    if (!slash || slash == path || strchr(slash + 1, '/')) {
+        return false;
+    }
+    size_t dlen = slash - path;
+    if (dlen >= devlen) {
+        return false;
+    }
+    memcpy(dev, path, dlen);
+    dev[dlen] = '\0';
+    strlcpy(file, slash + 1, filelen);
+    return true;
+}
+
+bool names_valid_path(const char *path)
+{
+    if (!path || strlen(path) >= NAMES_MAX_NAME) {
+        return false;
+    }
+    char dev[NAMES_MAX_NAME], file[NAMES_MAX_NAME];
+    if (!split_path(path, dev, sizeof(dev), file, sizeof(file))) {
+        return false;
+    }
+    return repo_valid_segment(dev, NAMES_MAX_NAME) &&
+           repo_valid_filename(file, NAMES_SUFFIX, NAMES_MAX_NAME);
+}
+
+/* Flacher Name aus der Zeit vor v1.18. Nur zum Loeschen zugelassen -- siehe
+ * names_delete(). */
+static bool names_valid_legacy(const char *file)
+{
+    return file && !strchr(file, '/') &&
+           repo_valid_filename(file, NAMES_SUFFIX, NAMES_MAX_NAME);
 }
 
 static void full_path(const char *file, char *out, size_t len)
@@ -49,19 +87,20 @@ static void full_path(const char *file, char *out, size_t len)
     snprintf(out, len, NAMES_MOUNT "/%s", file);
 }
 
-/* Datei ohne Ruecksicht auf Gross-/Kleinschreibung suchen und den TATSAECHLICHEN
- * Namen zurueckgeben. LittleFS unterscheidet Gross- und Kleinschreibung, die
- * Kennung soll es nicht -- und wer eine Datei ablegt, soll die Schreibweise
- * behalten duerfen, in der er sie benannt hat. Deshalb wird hier verglichen
- * statt beim Speichern normalisiert.
+/* Einen Eintrag ohne Ruecksicht auf Gross-/Kleinschreibung suchen und den
+ * TATSAECHLICHEN Namen zurueckgeben. LittleFS unterscheidet Gross- und
+ * Kleinschreibung, die Kennung soll es nicht -- und wer eine Datei ablegt, soll
+ * die Schreibweise behalten duerfen, in der er sie benannt hat. Deshalb wird
+ * hier verglichen statt beim Speichern normalisiert.
  *
- * out darf NULL sein, wenn nur interessiert, ob es die Datei gibt. */
-static bool names_find(const char *wanted, char *out, size_t len)
+ * out darf NULL sein, wenn nur interessiert, ob es den Eintrag gibt. */
+static bool find_entry(const char *dirpath, const char *wanted,
+                       char *out, size_t len)
 {
-    if (!s_ready || !wanted || !wanted[0]) {
+    if (!wanted || !wanted[0]) {
         return false;
     }
-    DIR *dir = opendir(NAMES_MOUNT);
+    DIR *dir = opendir(dirpath);
     if (!dir) {
         return false;
     }
@@ -78,6 +117,46 @@ static bool names_find(const char *wanted, char *out, size_t len)
     }
     closedir(dir);
     return hit;
+}
+
+/* Wie find_entry(), aber ueber beide Ebenen: erst den Geraeteordner, dann die
+ * Datei darin. Zurueck kommt der Pfad in der Schreibweise, in der er wirklich
+ * auf der Partition steht.
+ *
+ * Ein Name OHNE Schraegstrich wird flach im Wurzelverzeichnis gesucht -- das
+ * sind die Altbestaende, die nur noch geloescht werden koennen. Welche der
+ * beiden Formen an dieser Stelle ueberhaupt zulaessig ist, hat der Aufrufer mit
+ * names_valid_path() bzw. names_valid_legacy() bereits entschieden. */
+static bool names_find(const char *wanted, char *out, size_t len)
+{
+    if (!s_ready || !wanted || !wanted[0]) {
+        return false;
+    }
+    if (!strchr(wanted, '/')) {
+        return find_entry(NAMES_MOUNT, wanted, out, len);
+    }
+
+    char dev[NAMES_MAX_NAME], file[NAMES_MAX_NAME];
+    if (!split_path(wanted, dev, sizeof(dev), file, sizeof(file))) {
+        return false;
+    }
+
+    char actual_dev[NAMES_MAX_NAME];
+    if (!find_entry(NAMES_MOUNT, dev, actual_dev, sizeof(actual_dev))) {
+        return false;
+    }
+
+    char devpath[NAMES_PATH_LEN];
+    full_path(actual_dev, devpath, sizeof(devpath));
+
+    char actual_file[NAMES_MAX_NAME];
+    if (!find_entry(devpath, file, actual_file, sizeof(actual_file))) {
+        return false;
+    }
+    if (out) {
+        snprintf(out, len, "%s/%s", actual_dev, actual_file);
+    }
+    return true;
 }
 
 /* ---- Mount ---------------------------------------------------------------- */
@@ -116,10 +195,18 @@ esp_err_t names_init(void)
     s_ready = true;
 
     /* Gespeicherte Auswahl pruefen -- die Datei kann inzwischen geloescht
-     * worden sein, dann faellt die Auswahl weg statt ins Leere zu zeigen. */
-    if (g_cfg.names_file[0] && !names_find(g_cfg.names_file, NULL, 0)) {
-        ESP_LOGW(TAG, "Gewaehlte Datei '%s' fehlt, Auswahl verworfen",
-                 g_cfg.names_file);
+     * worden sein, dann faellt die Auswahl weg statt ins Leere zu zeigen.
+     *
+     * Geprueft wird auch die FORM: nach dem Umstieg auf Geraeteordner (v1.19)
+     * steht in NVS moeglicherweise noch ein flacher Altname. Den findet
+     * names_find() im Wurzelverzeichnis durchaus -- verwendbar ist er trotzdem
+     * nicht, names_open() weist ihn ab. Die Auswahl saehe dann gueltig aus und
+     * lieferte doch keine Namen. */
+    if (g_cfg.names_file[0] &&
+        (!names_valid_path(g_cfg.names_file) ||
+         !names_find(g_cfg.names_file, NULL, 0))) {
+        ESP_LOGW(TAG, "Gewaehlte Datei '%s' fehlt oder ist ein Altname, "
+                      "Auswahl verworfen", g_cfg.names_file);
         g_cfg.names_file[0] = '\0';
         app_config_save();
     }
@@ -158,7 +245,7 @@ esp_err_t names_select(const char *file)
     if (!file || !file[0]) {
         return set_active(NULL);
     }
-    if (!names_valid_filename(file)) {
+    if (!names_valid_path(file)) {
         return ESP_ERR_INVALID_ARG;
     }
     /* Ueber names_find, damit auch eine abweichend geschriebene Anfrage trifft --
@@ -216,13 +303,14 @@ void names_game_id(char *out, size_t len)
         return;
     }
 
-    /* Reine Zahlen werden dreistellig -- so heisst Airborne Avenger auf AtariFA
-     * "AtariFA_002" und nicht "AtariFA_2". Alles andere bleibt, wie es kam:
-     * was eine kuenftige Gegenstelle als Kennung meldet, ist nicht zu raten. */
+    /* Reine Zahlen werden dreistellig -- so liegt Airborne Avenger auf AtariFA
+     * unter "AtariFA/002" und nicht unter "AtariFA/2". Alles andere bleibt, wie
+     * es kam: was eine kuenftige Gegenstelle als Kennung meldet, ist nicht zu
+     * raten. */
     if (all_digits(game) && atoi(game) < 1000) {
-        snprintf(out, len, "%s_%03d", hw, atoi(game));
+        snprintf(out, len, "%s/%03d", hw, atoi(game));
     } else {
-        snprintf(out, len, "%s_%s", hw, game);
+        snprintf(out, len, "%s/%s", hw, game);
     }
 }
 
@@ -256,12 +344,40 @@ void names_select_for_id(void)
 
 /* ---- Dateien -------------------------------------------------------------- */
 
+/* Leeren Geraeteordner entfernen. Ohne das bliebe nach dem Loeschen der letzten
+ * Datei ein Ordner stehen, den ueber die Oberflaeche niemand mehr loswird. */
+static void rmdir_if_empty(const char *dev)
+{
+    char devpath[NAMES_PATH_LEN];
+    full_path(dev, devpath, sizeof(devpath));
+    DIR *dir = opendir(devpath);
+    if (!dir) {
+        return;
+    }
+    bool empty = true;
+    struct dirent *de;
+    while ((de = readdir(dir)) != NULL) {
+        if (strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0) {
+            empty = false;
+            break;
+        }
+    }
+    closedir(dir);
+    if (empty && rmdir(devpath) == 0) {
+        ESP_LOGI(TAG, "Leerer Ordner %s entfernt", dev);
+    }
+}
+
+/* Nimmt beide Formen an: den Ort "AtariFA/002.cfg" und den flachen Altnamen
+ * "AtariFA_002.cfg". Letzterer laesst sich nur noch loeschen, nicht mehr
+ * verwenden -- sonst blieben die Altbestaende unsichtbar liegen und belegten
+ * Flash, ohne dass jemand an sie herankaeme. */
 esp_err_t names_delete(const char *file)
 {
     if (!s_ready) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (!names_valid_filename(file)) {
+    if (!names_valid_path(file) && !names_valid_legacy(file)) {
         return ESP_ERR_INVALID_ARG;
     }
     char actual[NAMES_MAX_NAME];
@@ -277,6 +393,11 @@ esp_err_t names_delete(const char *file)
         set_active(NULL);
     }
     ESP_LOGI(TAG, "%s geloescht", actual);
+
+    char dev[NAMES_MAX_NAME], leaf[NAMES_MAX_NAME];
+    if (split_path(actual, dev, sizeof(dev), leaf, sizeof(leaf))) {
+        rmdir_if_empty(dev);
+    }
     return ESP_OK;
 }
 
@@ -285,7 +406,7 @@ esp_err_t names_open(const char *file, FILE **fp)
     if (!s_ready) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (!names_valid_filename(file)) {
+    if (!names_valid_path(file)) {
         return ESP_ERR_INVALID_ARG;
     }
     char actual[NAMES_MAX_NAME];
@@ -317,12 +438,31 @@ static bool looks_like_text(const char *data, size_t len)
     return true;
 }
 
+/* Geraeteordner anlegen, falls er fehlt. Gibt zurueck, ob er neu entstanden ist
+ * -- dann muss er beim Scheitern des Schreibens wieder weg. */
+static bool ensure_dir(const char *dev, bool *created)
+{
+    *created = false;
+    char devpath[NAMES_PATH_LEN];
+    full_path(dev, devpath, sizeof(devpath));
+    struct stat st;
+    if (stat(devpath, &st) == 0) {
+        return S_ISDIR(st.st_mode);
+    }
+    if (mkdir(devpath, 0777) != 0) {
+        ESP_LOGE(TAG, "Ordner %s laesst sich nicht anlegen", dev);
+        return false;
+    }
+    *created = true;
+    return true;
+}
+
 esp_err_t names_write(const char *file, const char *data, size_t len)
 {
     if (!s_ready) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (!names_valid_filename(file)) {
+    if (!names_valid_path(file)) {
         return ESP_ERR_INVALID_ARG;
     }
     if (len == 0 || len > NAMES_MAX_FILE_SIZE) {
@@ -333,23 +473,38 @@ esp_err_t names_write(const char *file, const char *data, size_t len)
     }
 
     /* Liegt dieselbe Datei bereits in anderer Schreibweise, wird SIE ersetzt.
-     * Sonst staenden "AtariFA_002.cfg" und "atarifa_002.cfg" nebeneinander und
+     * Sonst staenden "AtariFA/002.cfg" und "atarifa/002.cfg" nebeneinander und
      * beide passten auf dieselbe Kennung -- welche gilt, waere Zufall. */
     char actual[NAMES_MAX_NAME];
     if (!names_find(file, actual, sizeof(actual))) {
         strlcpy(actual, file, sizeof(actual));
     }
 
+    char dev[NAMES_MAX_NAME], leaf[NAMES_MAX_NAME];
+    if (!split_path(actual, dev, sizeof(dev), leaf, sizeof(leaf))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    bool dir_created = false;
+    if (!ensure_dir(dev, &dir_created)) {
+        return ESP_FAIL;
+    }
+
     char path[NAMES_PATH_LEN];
     full_path(actual, path, sizeof(path));
     FILE *fp = fopen(path, "w");
     if (!fp) {
+        if (dir_created) {
+            rmdir_if_empty(dev);
+        }
         return ESP_FAIL;
     }
     size_t written = fwrite(data, 1, len, fp);
     fclose(fp);
     if (written != len) {
         unlink(path);   /* halbe Datei ist schlimmer als keine */
+        if (dir_created) {
+            rmdir_if_empty(dev);
+        }
         return ESP_ERR_NO_MEM;
     }
     ESP_LOGI(TAG, "%s gespeichert (%u Byte)", actual, (unsigned)len);
@@ -358,45 +513,87 @@ esp_err_t names_write(const char *file, const char *data, size_t len)
 
 /* ---- Nachladen von lisy.dev ---------------------------------------------- */
 
-esp_err_t names_fetch_list_json(char *out, size_t out_len)
+/* Die Ablage auf lisy.dev ist genauso gegliedert wie die Partition: ein Ordner
+ * je Geraet. Deshalb zwei Schritte -- erst die Ordner, dann deren Inhalt. */
+esp_err_t names_fetch_dev_json(char *out, size_t out_len)
 {
-    return repo_list_json(NAMES_BASE_URL, NAMES_SUFFIX, out, out_len);
+    return repo_list_json(NAMES_BASE_URL, "/", out, out_len);
 }
 
-esp_err_t names_fetch(const char *file)
+esp_err_t names_fetch_list_json(const char *dev, char *out, size_t out_len)
+{
+    if (!repo_valid_segment(dev, NAMES_MAX_NAME)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    char url[128];
+    if (snprintf(url, sizeof(url), "%s%s/", NAMES_BASE_URL, dev) >= (int)sizeof(url)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return repo_list_json(url, NAMES_SUFFIX, out, out_len);
+}
+
+esp_err_t names_fetch(const char *path_in)
 {
     if (!s_ready) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (!names_valid_filename(file)) {
+    if (!names_valid_path(path_in)) {
         return ESP_ERR_INVALID_ARG;
     }
 
     /* Wie beim Upload: eine vorhandene Datei gleichen Namens ersetzen, statt
      * eine zweite Schreibweise danebenzulegen. */
     char actual[NAMES_MAX_NAME];
-    if (!names_find(file, actual, sizeof(actual))) {
-        strlcpy(actual, file, sizeof(actual));
+    if (!names_find(path_in, actual, sizeof(actual))) {
+        strlcpy(actual, path_in, sizeof(actual));
+    }
+
+    char dev[NAMES_MAX_NAME], leaf[NAMES_MAX_NAME];
+    if (!split_path(actual, dev, sizeof(dev), leaf, sizeof(leaf))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    bool dir_created = false;
+    if (!ensure_dir(dev, &dir_created)) {
+        return ESP_FAIL;
     }
 
     char path[NAMES_PATH_LEN];
     full_path(actual, path, sizeof(path));
     FILE *fp = fopen(path, "w");
     if (!fp) {
+        if (dir_created) {
+            rmdir_if_empty(dev);
+        }
         return ESP_FAIL;
     }
-    esp_err_t err = repo_download_to_file(NAMES_BASE_URL, file, fp,
+    /* Angefragt wird der Pfad, wie er auf dem Server steht -- die Schreibweise
+     * auf dem Geraet darf davon abweichen und tut es nach einem Umbenennen. */
+    esp_err_t err = repo_download_to_file(NAMES_BASE_URL, path_in, fp,
                                           NAMES_MAX_FILE_SIZE);
     fclose(fp);
     if (err != ESP_OK) {
         /* Abgebrochener Download hinterlaesst sonst eine halbe Datei, die beim
          * naechsten Blick in die Liste wie eine gueltige aussaehe. */
         unlink(path);
+        if (dir_created) {
+            rmdir_if_empty(dev);
+        }
     }
     return err;
 }
 
 /* ---- Auflisten ------------------------------------------------------------ */
+
+/* Einen Eintrag anhaengen. count zaehlt mit, damit das Komma stimmt. */
+static void append_entry(char *out, size_t out_len, size_t *w, int *count,
+                         const char *name, const char *path, bool old)
+{
+    struct stat st;
+    long size = (stat(path, &st) == 0) ? (long)st.st_size : 0;
+    *w += snprintf(out + *w, out_len - *w, "%s{\"n\":\"%s\",\"s\":%ld%s}",
+                   *count ? "," : "", name, size, old ? ",\"old\":1" : "");
+    (*count)++;
+}
 
 esp_err_t names_list_json(char *out, size_t out_len)
 {
@@ -407,29 +604,62 @@ esp_err_t names_list_json(char *out, size_t out_len)
         return ESP_OK;
     }
 
-    DIR *dir = opendir(NAMES_MOUNT);
-    if (!dir) {
+    DIR *root = opendir(NAMES_MOUNT);
+    if (!root) {
         snprintf(out + w, out_len - w, "]}");
         return ESP_FAIL;
     }
 
-    /* Begrenzt, damit das JSON in den Puffer des Aufrufers passt: ein Eintrag ist
-     * hoechstens ~45 Byte, und es muss noch Platz fuer den Abschluss bleiben. */
+    /* Begrenzt, damit das JSON in den Puffer des Aufrufers passt: ein Eintrag
+     * ist hoechstens ~56 Byte, und es muss noch Platz fuer den Abschluss
+     * bleiben.
+     *
+     * Zwei Sorten Eintrag: die Dateien in den Geraeteordnern -- das sind die
+     * gueltigen -- und die flachen .cfg im Wurzelverzeichnis, die von vor v1.18
+     * stammen. Letztere kommen mit "old":1 mit, damit sie sich loeschen lassen;
+     * unsichtbar wuerden sie nur unerklaerlich Platz belegen. */
     int count = 0;
     struct dirent *de;
-    while ((de = readdir(dir)) != NULL && count < NAMES_MAX_LIST && w + 64 < out_len) {
-        if (!names_valid_filename(de->d_name)) {
+    while ((de = readdir(root)) != NULL && count < NAMES_MAX_LIST && w + 80 < out_len) {
+        char path[NAMES_PATH_LEN];
+        full_path(de->d_name, path, sizeof(path));
+
+        struct stat st;
+        if (stat(path, &st) != 0) {
             continue;
         }
-        char path[NAMES_PATH_LEN];
-        struct stat st;
-        full_path(de->d_name, path, sizeof(path));
-        long size = (stat(path, &st) == 0) ? (long)st.st_size : 0;
-        w += snprintf(out + w, out_len - w, "%s{\"n\":\"%s\",\"s\":%ld}",
-                      count ? "," : "", de->d_name, size);
-        count++;
+
+        if (!S_ISDIR(st.st_mode)) {
+            if (names_valid_legacy(de->d_name)) {
+                append_entry(out, out_len, &w, &count, de->d_name, path, true);
+            }
+            continue;
+        }
+        if (!repo_valid_segment(de->d_name, NAMES_MAX_NAME)) {
+            continue;
+        }
+
+        DIR *sub = opendir(path);
+        if (!sub) {
+            continue;
+        }
+        struct dirent *fe;
+        while ((fe = readdir(sub)) != NULL && count < NAMES_MAX_LIST && w + 80 < out_len) {
+            if (!repo_valid_filename(fe->d_name, NAMES_SUFFIX, NAMES_MAX_NAME)) {
+                continue;
+            }
+            char rel[NAMES_MAX_NAME];
+            if (snprintf(rel, sizeof(rel), "%s/%s", de->d_name, fe->d_name)
+                    >= (int)sizeof(rel)) {
+                continue;   /* passt nicht in einen Bezeichner, also nicht nutzbar */
+            }
+            char fpath[NAMES_PATH_LEN];
+            full_path(rel, fpath, sizeof(fpath));
+            append_entry(out, out_len, &w, &count, rel, fpath, false);
+        }
+        closedir(sub);
     }
-    closedir(dir);
+    closedir(root);
 
     if (w < out_len) {
         size_t total = 0, used = 0;

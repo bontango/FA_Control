@@ -331,7 +331,9 @@ static esp_err_t status_get_handler(httpd_req_t *req)
  * aktualisiert) weisen alle Handler hier ab und die Oberflaeche blendet den
  * Bereich aus -- der Rest von FA_Control merkt davon nichts. */
 
-#define NAMES_NO_FS_MSG "No name storage on this device"
+#define NAMES_NO_FS_MSG   "No name storage on this device"
+/* Seit v1.19 ist der Ort die Kennung: Geraeteordner + Datei. */
+#define NAMES_BAD_PATH_MSG "Invalid path - use <DEVICE>/<GAME>.cfg"
 
 /* Die aktive Datei roh ausliefern; das Zerlegen macht die Weboberflaeche. */
 static esp_err_t names_get_handler(httpd_req_t *req)
@@ -389,7 +391,7 @@ static esp_err_t namesel_post_handler(httpd_req_t *req)
         return send_err(req, "Naming file not found");
     }
     if (err != ESP_OK) {
-        return send_err(req, "Invalid file name");
+        return send_err(req, NAMES_BAD_PATH_MSG);
     }
     return send_ok(req);
 }
@@ -421,8 +423,8 @@ static esp_err_t nameup_post_handler(httpd_req_t *req)
     if (!get_param(req, "file", file, sizeof(file))) {
         return send_err(req, "Parameter file missing");
     }
-    if (!names_valid_filename(file)) {
-        return send_err(req, "Invalid file name - use <HARDWARE>_<GAME>.cfg");
+    if (!names_valid_path(file)) {
+        return send_err(req, NAMES_BAD_PATH_MSG);
     }
     if (req->content_len == 0 || req->content_len > NAMES_MAX_FILE_SIZE) {
         return send_err(req, "File empty or too large (max 32 kB)");
@@ -454,16 +456,26 @@ static esp_err_t nameup_post_handler(httpd_req_t *req)
     return send_ok(req);
 }
 
+/* Zweistufig, weil die Ablage auf lisy.dev genauso gegliedert ist wie die
+ * Partition: ohne "dev" kommen die Geraeteordner, mit "dev" deren Inhalt. */
 static esp_err_t namefetchlist_get_handler(httpd_req_t *req)
 {
     if (wifi_mgr_get_mode() == WIFI_MGR_MODE_AP) {
         return send_err(req, "No internet in AP mode");
     }
+    char dev[NAMES_MAX_NAME] = "";
+    get_param(req, "dev", dev, sizeof(dev));   /* leer = Geraeteliste */
+
     char *buf = malloc(1536);
     if (!buf) {
         return send_err(req, "Out of memory");
     }
-    esp_err_t err = names_fetch_list_json(buf, 1536);
+    esp_err_t err = dev[0] ? names_fetch_list_json(dev, buf, 1536)
+                           : names_fetch_dev_json(buf, 1536);
+    if (err == ESP_ERR_INVALID_ARG) {
+        free(buf);
+        return send_err(req, "Invalid device name");
+    }
     if (err != ESP_OK) {
         free(buf);
         return send_err(req, "Server unreachable");
@@ -488,7 +500,7 @@ static esp_err_t namefetch_post_handler(httpd_req_t *req)
     }
     esp_err_t err = names_fetch(file);
     if (err == ESP_ERR_INVALID_ARG) {
-        return send_err(req, "Invalid file name");
+        return send_err(req, NAMES_BAD_PATH_MSG);
     }
     if (err == ESP_ERR_INVALID_SIZE) {
         return send_err(req, "File too large (max 32 kB)");

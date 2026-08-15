@@ -14,6 +14,30 @@ static const char *TAG = "repo";
 
 /* ---- Dateinamen ---------------------------------------------------------- */
 
+bool repo_valid_segment(const char *seg, size_t max_len)
+{
+    if (!seg || !seg[0]) {
+        return false;
+    }
+    size_t len = strlen(seg);
+    if (len >= max_len) {
+        return false;
+    }
+    /* "." und ".." bestehen aus erlaubten Zeichen, meinen aber Verzeichnisse.
+     * Sie muessen einzeln heraus, sonst fuehrt ein Pfadstueck doch wieder aus
+     * dem Verzeichnis heraus. */
+    if (strcmp(seg, ".") == 0 || strcmp(seg, "..") == 0) {
+        return false;
+    }
+    for (size_t i = 0; i < len; i++) {
+        char c = seg[i];
+        if (!isalnum((unsigned char)c) && c != '.' && c != '_' && c != '-') {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool repo_valid_filename(const char *file, const char *suffix, size_t max_len)
 {
     if (!file || !suffix) {
@@ -21,19 +45,13 @@ bool repo_valid_filename(const char *file, const char *suffix, size_t max_len)
     }
     size_t len = strlen(file);
     size_t slen = strlen(suffix);
-    if (len <= slen || len >= max_len) {
-        return false;
+    if (len <= slen) {
+        return false;   /* vor der Endung muss noch etwas stehen */
     }
     if (strcmp(file + len - slen, suffix) != 0) {
         return false;
     }
-    for (size_t i = 0; i < len; i++) {
-        char c = file[i];
-        if (!isalnum((unsigned char)c) && c != '.' && c != '_' && c != '-') {
-            return false;
-        }
-    }
-    return true;
+    return repo_valid_segment(file, max_len);
 }
 
 /* ---- Verzeichnislisting --------------------------------------------------- */
@@ -89,7 +107,13 @@ esp_err_t repo_list_json(const char *base_url, const char *suffix,
     }
     body[total] = '\0';
 
-    /* href="<name><suffix>" einsammeln */
+    /* href="<name><suffix>" einsammeln.
+     *
+     * Schraegstriche sind nur INNERHALB des Suffix erlaubt. Fuer Dateien
+     * (".cfg", ".bin") heisst das wie bisher: gar keine. Fuer suffix = "/"
+     * heisst es: genau der eine am Ende -- so faellt der Elternlink
+     * href="/swrep/misc/FA_Control/" ueber seine uebrigen Schraegstriche
+     * heraus, und die Sortierlinks href="?C=N;O=D" schon ueber das Suffix. */
     char names[REPO_MAX_FILES][REPO_MAX_NAME];
     char *idx[REPO_MAX_FILES];
     int count = 0;
@@ -102,7 +126,7 @@ esp_err_t repo_list_json(const char *base_url, const char *suffix,
         }
         size_t len = q - p;
         if (len > slen && len < REPO_MAX_NAME &&
-            strncmp(q - slen, suffix, slen) == 0 && !memchr(p, '/', len)) {
+            strncmp(q - slen, suffix, slen) == 0 && !memchr(p, '/', len - slen)) {
             memcpy(names[count], p, len);
             names[count][len] = '\0';
             idx[count] = names[count];
@@ -130,7 +154,13 @@ esp_err_t repo_list_json(const char *base_url, const char *suffix,
 esp_err_t repo_download_to_file(const char *base_url, const char *file,
                                 FILE *fp, size_t max_len)
 {
-    char url[128];
+    /* Abschneiden waere hier besonders tueckisch: die gekuerzte URL koennte auf
+     * eine andere, existierende Datei zeigen. Lieber gar nicht erst laden. */
+    char url[160];
+    if (strlen(base_url) + strlen(file) >= sizeof(url)) {
+        ESP_LOGW(TAG, "URL zu lang: %s%s", base_url, file);
+        return ESP_ERR_INVALID_ARG;
+    }
     snprintf(url, sizeof(url), "%s%s", base_url, file);
 
     esp_http_client_config_t cfg = {
