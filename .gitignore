@@ -7,6 +7,10 @@ dependencies.lock
 releases/
 bin/
 
+# Von flasher\deploy_flasher.ps1 aus docs\USB_FLASH.md erzeugt -- die Markdown-
+# Datei ist die Quelle, das HTML nur ihr Abzug fuer den Server.
+flasher/USB_FLASH.html
+
 # Local working notes, not part of the published project
 CLAUDE.md
 PROJECT.md

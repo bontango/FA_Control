@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FA·CONTROL — USB INSTALLER</title>
+<style>
+/* Farbwelt und Bausteine sind aus main/web/index.html uebernommen, damit die
+   Installationsseite und die Geraeteoberflaeche wie ein Stueck wirken. Wer dort
+   an :root dreht, muss hier mitziehen -- die Seite lebt ausserhalb des Geraets
+   und kann sich nichts von ihm holen. */
+:root{
+  --bg:#F2E9DC;        /* Flaeche  -- lisy.dev #FCF7F0, abgedunkelt */
+  --panel:#FBF6EF;     /* Kacheln, Eingaben                        */
+  --dark:#33201A;      /* Dunkle Flaeche -- lisy.dev #361F19       */
+  --dark-2:#281713;    /* Kopfleiste, eine Spur tiefer             */
+  --line:#DDCEBB;      /* Rahmen                                   */
+  --line-2:#C6B29B;    /* Rahmen, kraeftiger                       */
+  --cu:#A96A47;        /* Akzent   -- lisy.dev #B67652             */
+  --cu-dk:#6B3A20;     /* Ueberschriften -- lisy.dev #7A4325       */
+  --cu-hi:#BE8360;     /* Akzent, aufgehellt                       */
+  --txt:#2E2622;       /* Fliesstext, warm statt neutralem #333    */
+  --dim:#6F6053;       /* Nebentext -- dunkel genug fuer 11px Text */
+  --ok:#2A6E2C;        /* Erfolg                                   */
+  --ok-dk:#1D4E1F;
+  --ok-bg:#E1EBDD;
+  --warn:#8F2A0F;      /* Warnung                                  */
+  --warn-bg:#F0DED8;
+  --seg-bg:#211A15;    /* dunkle Insel: Siebensegment, hier das Log */
+  --seg-gh:#382B23;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px}
+body{
+  background:var(--bg);
+  color:var(--txt);
+  font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  line-height:1.5;
+  min-height:100vh;
+  padding-bottom:3rem;
+}
+header{
+  background:var(--dark-2);
+  border-bottom:3px solid var(--cu);
+  padding:.7rem 1.2rem;
+  display:flex;flex-wrap:wrap;align-items:center;gap:.4rem 1.2rem;
+}
+h1{font-size:1.35rem;letter-spacing:.3em;font-weight:700;color:var(--bg)}
+h1 small{
+  font-size:.58rem;letter-spacing:.18em;color:var(--cu-hi);
+  display:block;font-weight:400;margin-top:.15rem;
+}
+#logo{margin-left:auto;display:block;height:34px;width:auto}
+/* Banner fuer den einen Fall, in dem die Seite gar nichts ausrichten kann */
+#nowebserial{
+  display:none;margin:1rem 1.2rem 0;padding:.6rem .8rem;
+  border:1px solid var(--warn);background:var(--warn-bg);color:var(--warn);
+  font-size:.72rem;letter-spacing:.05em;font-weight:700;
+}
+main{max-width:880px;margin:0 auto;padding:1.4rem 1.2rem}
+.hint{font-size:.68rem;color:var(--dim);letter-spacing:.05em}
+.lead{font-size:.78rem;color:var(--dim);letter-spacing:.03em;margin-bottom:1.2rem}
+fieldset{border:1px solid var(--line-2);background:var(--panel);padding:1rem;margin-bottom:1.2rem}
+legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;font-weight:700}
+.row{display:flex;flex-wrap:wrap;gap:.7rem;align-items:center;margin-top:.6rem}
+ul.steps{list-style:none;font-size:.75rem;color:var(--txt)}
+ul.steps li{padding:.3rem 0 .3rem 1.4rem;position:relative;letter-spacing:.02em}
+ul.steps li::before{
+  content:"▸";position:absolute;left:.2rem;top:.3rem;color:var(--cu);font-weight:700;
+}
+ul.steps b{color:var(--cu-dk)}
+.vals{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:.6rem}
+.val{border:1px solid var(--line);background:var(--panel);padding:.5rem .6rem}
+.val span{display:block;font-size:.6rem;color:var(--dim);letter-spacing:.1em}
+.val b{
+  display:block;font-size:1.3rem;font-weight:700;color:var(--cu-dk);
+  margin-top:.15rem;font-variant-numeric:tabular-nums;
+}
+table.files{border-collapse:collapse;width:100%;margin-top:.9rem;font-size:.68rem}
+table.files th,table.files td{
+  border:1px solid var(--line);padding:.35rem .5rem;text-align:left;
+  letter-spacing:.05em;
+}
+table.files th{color:var(--cu-dk);font-weight:700;background:#F7F0E4}
+table.files td{color:var(--dim)}
+table.files td.adr{font-family:ui-monospace,Consolas,monospace;color:var(--txt)}
+.btn{
+  background:var(--panel);border:1px solid var(--cu);color:var(--cu-dk);
+  font:inherit;font-size:.75rem;padding:.45rem .9rem;cursor:pointer;
+  letter-spacing:.12em;font-weight:700;
+}
+.btn:hover{background:var(--cu);color:#fff}
+.btn:focus-visible{outline:2px solid var(--cu-dk);outline-offset:2px}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.btn[disabled]:hover{background:var(--panel);color:var(--cu-dk)}
+.btn.warn{border-color:var(--warn);color:var(--warn)}
+.btn.warn:hover{background:var(--warn);color:#fff}
+.btn.warn[disabled]:hover{background:var(--panel);color:var(--warn)}
+#fstat{font-size:.72rem;letter-spacing:.08em;color:var(--dim);font-weight:700}
+#fstat.ok{color:var(--ok)}
+#fstat.bad{color:var(--warn)}
+/* Fortschritt: gefuellte Flaeche, kein Leuchten -- wie .cell.on in der
+   Geraeteoberflaeche. Auf hellem Grund traegt die Flaeche die Aussage. */
+#bar{
+  display:none;height:.55rem;background:#E9E0D1;border:1px solid var(--line-2);
+  margin-top:.7rem;
+}
+#bar i{display:block;height:100%;width:0;background:var(--cu);transition:width .15s linear}
+/* Das Log ist neben der Siebensegment-Nachbildung der Geraeteseite die zweite
+   bewusst dunkle Insel: es ist eine Konsole, keine Statusflaeche. Die Ausgaben
+   von esptool-js sind Werkzeugausgaben und sollen auch so aussehen. */
+#flog{
+  display:none;margin-top:.8rem;padding:.6rem .7rem;
+  background:var(--seg-bg);border:1px solid var(--dark);
+  color:var(--cu-hi);font-family:ui-monospace,Consolas,monospace;
+  font-size:.68rem;line-height:1.45;white-space:pre-wrap;word-break:break-word;
+  max-height:16rem;overflow-y:auto;
+}
+footer{
+  max-width:880px;margin:0 auto;padding:0 1.2rem;
+  font-size:.68rem;color:var(--dim);letter-spacing:.05em;
+}
+footer a{color:var(--cu-dk);font-weight:700}
+#toast{
+  position:fixed;left:50%;bottom:1.2rem;transform:translateX(-50%);
+  background:var(--dark-2);border:1px solid var(--cu);color:var(--bg);
+  padding:.5rem 1.1rem;font-size:.75rem;letter-spacing:.1em;display:none;z-index:10;
+  font-weight:700;box-shadow:0 4px 16px rgba(51,32,26,.3);
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>FA·CONTROL<small>USB FIRMWARE INSTALLER</small></h1>
+  <img id="logo" src="logo.png" alt="LISY development" width="224" height="114">
+</header>
+
+<div id="nowebserial">▲ WEB SERIAL NOT AVAILABLE — USE CHROME OR EDGE ON A DESKTOP COMPUTER</div>
+
+<main>
+<p class="lead">
+  WRITES THE COMPLETE FLASH PACKAGE — BOOTLOADER, PARTITION TABLE, OTA DATA AND FIRMWARE —
+  STRAIGHT TO THE ESP32-C3 OVER USB. NO WI-FI, NO ESP-IDF INSTALLATION.
+  USE THIS FOR A NEW BOARD, FOR A RESCUE, OR WHEN THE <b>NAMES</b> MENU IS MISSING
+  BECAUSE THE DEVICE HAS ONLY EVER SEEN OVER-THE-AIR UPDATES.
+</p>
+
+<fieldset>
+  <legend>BEFORE YOU START</legend>
+  <ul class="steps">
+    <li>Set <b>DIP 1 to ON</b>. It is the power switch — in deep sleep the ESP32-C3 drops
+        its USB-Serial/JTAG port and no device shows up in the browser dialog.</li>
+    <li>Use a USB-C cable <b>with data wires</b>. Charge-only cables give power and no port.</li>
+    <li>Make sure the machine is not under FA_Control's control right now — release it
+        first, or simply power the pinball down.</li>
+    <li>Chrome or Edge on a desktop computer. Firefox and Safari have no Web Serial API.</li>
+  </ul>
+</fieldset>
+
+<fieldset>
+  <legend>PACKAGE</legend>
+  <div class="vals">
+    <div class="val"><span>VERSION</span><b id="pkgver">–</b></div>
+    <div class="val"><span>TARGET</span><b>ESP32-C3</b></div>
+  </div>
+  <table class="files">
+    <thead><tr><th>FILE</th><th>OFFSET</th><th>PURPOSE</th></tr></thead>
+    <tbody id="ftab"></tbody>
+  </table>
+  <p class="hint" style="margin-top:.7rem">
+    NOTHING ELSE IS TOUCHED — WI-FI CREDENTIALS (NVS) AND UPLOADED NAMING FILES SURVIVE.
+    ONE EXCEPTION: COMING FROM A VERSION BEFORE 1.18 THE NAMING STORAGE MOVES AND STARTS EMPTY.
+  </p>
+</fieldset>
+
+<fieldset>
+  <legend>INSTALL</legend>
+  <div class="row" style="margin-top:0">
+    <button class="btn warn" id="dofl">⚡ FLASH VIA USB</button>
+    <span id="fstat"></span>
+  </div>
+  <div id="bar"><i></i></div>
+  <div id="flog"></div>
+</fieldset>
+</main>
+
+<footer>
+  <p>
+    <a href="USB_FLASH.html">USER GUIDE</a> ·
+    <a href="https://lisy.dev/swrep/misc/FA_Control/bin/">FIRMWARE-ONLY RELEASES (OTA)</a> ·
+    <a href="https://lisy.dev/">LISY.DEV</a>
+  </p>
+</footer>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+var $=function(s){return document.querySelector(s)};
+
+/* Reihenfolge und Offsets stammen aus flasher_args.json des ESP-IDF-Builds.
+   Der ESP32-C3 hat den Bootloader bei 0x0 (nicht 0x1000 wie der klassische
+   ESP32); 0x20000 ist ota_0 aus partitions.csv. */
+var FILES=[
+  {name:"bootloader.bin",       address:0x0,     what:"Second-stage bootloader"},
+  {name:"partition-table.bin",  address:0x8000,  what:"Partition table — carries the NAMES partition"},
+  {name:"ota_data_initial.bin", address:0xf000,  what:"OTA selection, reset to the first slot"},
+  {name:"FA_Control.bin",       address:0x20000, what:"Firmware (ota_0)"}
+];
+var BASE_URL="https://lisy.dev/swrep/misc/FA_Control/esptool/";
+
+function toast(m){var t=$("#toast");t.textContent=m;t.style.display="block";
+  clearTimeout(t._h);t._h=setTimeout(function(){t.style.display="none"},2600)}
+
+function log(m){var l=$("#flog");l.style.display="block";
+  l.textContent+=m+"\n";l.scrollTop=l.scrollHeight}
+
+function status(m,cls){var s=$("#fstat");s.textContent=m;s.className=cls||""}
+
+function hex(a){return "0x"+a.toString(16).toUpperCase()}
+
+/* ---- Aufbau der Seite ---- */
+(function(){
+  var tb=$("#ftab");
+  FILES.forEach(function(f){
+    var tr=document.createElement("tr");
+    var td1=document.createElement("td");td1.textContent=f.name;
+    var td2=document.createElement("td");td2.className="adr";td2.textContent=hex(f.address);
+    var td3=document.createElement("td");td3.textContent=f.what;
+    tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tb.appendChild(tr);
+  });
+
+  if(!("serial" in navigator)){
+    $("#nowebserial").style.display="block";
+    $("#dofl").disabled=true;
+  }
+
+  /* Die Version steht als eigene Datei neben den Binaries -- build_and_deploy_full.ps1
+     legt sie dort ab. Faellt der Abruf aus, bleibt der Strich stehen; das ist kein
+     Grund, den Flash zu verweigern. */
+  fetch(BASE_URL+"version.txt",{cache:"no-store"})
+    .then(function(r){if(!r.ok)throw 0;return r.text()})
+    .then(function(t){
+      t=t.replace(/^\uFEFF/,"").trim();   /* falls die Datei doch mit BOM ankommt */
+      if(t)$("#pkgver").textContent="v"+t.replace(/^v/i,"");
+    })
+    .catch(function(){});
+})();
+
+/* ---- Der Flash-Vorgang ----
+   Uebernommen aus dem LISYclock-Config-Editor (usbFlashESP32) und auf FA_Control
+   angepasst. esptool-js kommt per dynamischem Import von esm.sh -- die Seite
+   braucht also Internet, nicht nur den ESP32. */
+async function flashDevice(){
+  if(!("serial" in navigator)){
+    toast("WEB SERIAL NOT AVAILABLE — USE CHROME OR EDGE");
+    return;
+  }
+
+  var btn=$("#dofl"), bar=$("#bar"), fill=bar.firstElementChild;
+  btn.disabled=true;
+  $("#flog").textContent="";
+  bar.style.display="block";fill.style.width="0";
+  status("PREPARING …");
+
+  var transport=null;
+  try{
+    /* 1. Binaries holen */
+    log("Downloading flash package from lisy.dev …");
+    var fileArray=[];
+    for(var i=0;i<FILES.length;i++){
+      var f=FILES[i];
+      log("  "+f.name+" …");
+      var resp=await fetch(BASE_URL+f.name,{cache:"no-store"});
+      if(!resp.ok)throw new Error("Download failed: "+f.name+" (HTTP "+resp.status+")");
+      var buf=await resp.arrayBuffer();
+      /* esptool-js will einen Binaerstring in Latin-1, kein ArrayBuffer.
+         In Bloecken umwandeln, sonst sprengt fromCharCode.apply den Stack. */
+      var bytes=new Uint8Array(buf), data="";
+      for(var p=0;p<bytes.length;p+=0x8000){
+        data+=String.fromCharCode.apply(null,bytes.subarray(p,p+0x8000));
+      }
+      fileArray.push({data:data,address:f.address});
+      log("  ok ("+(buf.byteLength/1024).toFixed(1)+" KB)");
+    }
+
+    /* 2. esptool-js nachladen (esm.sh buendelt alle Abhaengigkeiten inline) */
+    log("Loading esptool-js …");
+    var mod=await import("https://esm.sh/esptool-js@0.4.1");
+    var ESPLoader=mod.ESPLoader, Transport=mod.Transport;
+
+    /* 3. Port waehlen */
+    status("WAITING FOR PORT …");
+    log("Select the ESP32-C3 in the browser dialog …");
+    var port=await navigator.serial.requestPort();
+    transport=new Transport(port,false);
+
+    var terminal={clean:function(){},writeLine:function(d){log(d)},write:function(){}};
+    var esploader=new ESPLoader({transport:transport,baudrate:115200,terminal:terminal});
+
+    /* 4. Verbinden */
+    status("CONNECTING …");
+    log("Connecting …");
+    var chip=await esploader.main();
+    log("Chip: "+chip);
+
+    /* 5. Schreiben. eraseAll bleibt aus: geschrieben wird ausschliesslich an die
+       vier Offsets oben, damit NVS (WLAN) und die names-Partition bleiben.
+       flashSize 'keep' laesst den Kopf des Bootloaders unangetastet -- dort
+       stehen Modus, Takt und Groesse bereits richtig drin. */
+    log("Writing …");
+    await esploader.writeFlash({
+      fileArray:fileArray,
+      flashSize:"keep",
+      eraseAll:false,
+      compress:true,
+      reportProgress:function(idx,written,total){
+        var pct=Math.round(written/total*100);
+        var overall=Math.round((idx+written/total)/FILES.length*100);
+        fill.style.width=overall+"%";
+        status(FILES[idx].name.toUpperCase()+" — "+pct+"%");
+        if(written===total)log("  "+FILES[idx].name+" done.");
+      }
+    });
+
+    /* 6. Neustart */
+    log("Flash complete. Resetting …");
+    await esploader.hardReset();
+    await transport.disconnect();
+    transport=null;
+
+    fill.style.width="100%";
+    status("DONE — DEVICE IS RESTARTING","ok");
+    log("Done. The device restarts and comes up as an access point named FA-Control");
+    log("unless Wi-Fi credentials were already stored.");
+    toast("FLASH COMPLETE");
+
+  }catch(err){
+    /* Der Abbruch im Portdialog ist kein Fehler, sondern eine Entscheidung. */
+    if(err && err.name==="NotSelectedError"){
+      log("Cancelled — no device selected.");
+      status("");
+      bar.style.display="none";
+    }else{
+      var m=(err && err.message)?err.message:String(err);
+      log("Error: "+m);
+      status("FAILED","bad");
+      toast("FLASH FAILED: "+m.toUpperCase());
+    }
+    if(transport){try{await transport.disconnect()}catch(e){}}
+  }finally{
+    btn.disabled=!("serial" in navigator);
+  }
+}
+
+$("#dofl").addEventListener("click",flashDevice);
+</script>
+</body>
+</html>

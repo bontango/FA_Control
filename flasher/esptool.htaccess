@@ -1,0 +1,23 @@
+# Wird von build_and_deploy_full.ps1 als .htaccess in den esptool-Ordner gelegt.
+# Im Repo darf die Datei nicht ".htaccess" heissen, sonst gaebe es zwei davon
+# im selben Verzeichnis -- eine fuer die Seite, eine fuer die Binaries.
+#
+# Der CORS-Kopf ist kein Beiwerk: wer FA_Control_flasher.html von der Platte
+# oeffnet, hat den Origin "null", und ohne den Kopf verweigert der Browser den
+# Download der vier Binaries. Auf dem Server selbst ist es same-origin, dort
+# schadet der Kopf nicht.
+
+<IfModule mod_headers.c>
+
+    # CORS: alle Domains erlauben
+    Header set Access-Control-Allow-Origin "*"
+
+    # Firmware-Binaries nie cachen -- sonst flasht ein Zwischenspeicher die
+    # vorige Version, waehrend version.txt schon die neue meldet.
+    <FilesMatch "\.(bin|txt)$">
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+        Header set Pragma "no-cache"
+        Header set Expires "0"
+    </FilesMatch>
+
+</IfModule>
