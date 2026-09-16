@@ -305,6 +305,34 @@ everything else stays numeric. Maximum 32 kB per file.
 > flashing over USB — see [USB_FLASH.md](USB_FLASH.md), which does that from a browser
 > without any development tools. Everything else works exactly the same without it.
 
+### 08 · GAME ROMS
+
+For FA boards with an ESP32 socket that support it - **SternFA** (PCB v2.00) from software
+5.0.6 on. Right after reading its DIP switches the board asks this device for its game. If a
+rom for it is stored here, the board boots from it and needs no SD card (SternFA shows status
+digit `3` on its boot display). Otherwise it reads its SD card as always. This works without
+CONNECT and without the takeover permission - but the device has to be **awake** (DIP 1 ON)
+when the machine is switched on.
+
+Roms are kept per device, just like the naming files: **DEVICE/NNN**, where DEVICE is the name
+the board reports (`SternFA`) and NNN the game number shown on its boot display, three digits.
+
+- **LAST BOOT REQUEST** shows which device and game asked last, and what happened. If the rom
+  was missing but is available on lisy.dev, a button fetches it right away - switch the
+  machine off and on afterwards.
+- **STORED ON THIS DEVICE** lists the roms with their size, each with DELETE.
+- **ADD A GAME**: enter device and game number, choose the file and press UPLOAD - or load the
+  list from lisy.dev, pick device and file, and press DOWNLOAD.
+
+The file is the game slot exactly as written to the SD card: a multiple of 512 bytes, at most
+65,536. A full 65,536-byte slot carries its checksum at the end and is rejected if it does not
+match. On lisy.dev the files are in `roms/<device>/` and named `012.bin` or `012_Title.bin` -
+only the number counts. About 60 SternFA games fit.
+
+> Tile 08 needs its own storage area, which - like the one for tile 07 - only a full
+> installation over USB sets up (from firmware 1.21 on). The naming files survive that
+> installation.
+
 ---
 
 ## 8. Releasing control

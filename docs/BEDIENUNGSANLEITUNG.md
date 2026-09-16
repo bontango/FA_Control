@@ -325,6 +325,35 @@ Höchstens 32 kB je Datei.
 > § 9, Abschnitt *Vollinstallation über USB*. Alles andere funktioniert auch ohne ihn
 > unverändert.
 
+### 08 · GAME ROMS
+
+Für FA-Platinen mit ESP32-Steckplatz, die das können - **SternFA** (Platine v2.00) ab
+Software 5.0.6. Direkt nach dem Lesen ihrer DIP-Schalter fragt die Platine dieses Gerät nach
+ihrem Spiel. Liegt hier ein ROM dafür, startet sie davon und braucht keine SD-Karte (SternFA
+zeigt im Bootbild die Statusziffer `3`). Sonst liest sie wie gewohnt ihre SD-Karte. Das
+funktioniert ohne CONNECT und ohne Übernahme-Freigabe - das Gerät muss beim Einschalten des
+Automaten aber **wach** sein (DIP 1 auf ON).
+
+ROMs werden je Gerät abgelegt, genau wie die Namensdateien: **GERÄT/NNN**. GERÄT ist der Name,
+den die Platine meldet (`SternFA`), NNN die Spielnummer aus dem Bootbild, dreistellig.
+
+- **LAST BOOT REQUEST** zeigt, welches Gerät und welches Spiel zuletzt gefragt haben und was
+  daraus wurde. Fehlte das ROM, liegt es aber auf lisy.dev, holt ein Knopf es sofort - danach
+  den Automaten aus- und wieder einschalten.
+- **STORED ON THIS DEVICE** listet die ROMs mit Größe, jeweils mit DELETE.
+- **ADD A GAME**: Gerät und Spielnummer eintragen, Datei wählen, UPLOAD - oder die Liste von
+  lisy.dev laden, Gerät und Datei wählen, DOWNLOAD.
+
+Die Datei ist der Spielplatz genau so, wie er auf die SD-Karte geschrieben wird: ein
+Vielfaches von 512 Byte, höchstens 65 536. Ein voller 65 536-Byte-Platz trägt am Ende seine
+Prüfsumme und wird abgewiesen, wenn sie nicht stimmt. Auf lisy.dev liegen die Dateien in
+`roms/<Gerät>/` und heißen `012.bin` oder `012_Titel.bin` - es zählt nur die Nummer. Etwa 60
+SternFA-Spiele passen.
+
+> Kachel 08 braucht einen eigenen Speicherbereich, den - wie den für Kachel 07 - nur eine
+> Vollinstallation per USB einrichtet (ab Firmware 1.21). Die Namensdateien bleiben dabei
+> erhalten.
+
 ---
 
 ## 8. Kontrolle zurückgeben

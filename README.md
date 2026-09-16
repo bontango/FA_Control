@@ -19,6 +19,14 @@ a folder per device, the game number as the file name — `<hardware>/<game>.cfg
 `AtariFA/002.cfg`. It is picked up automatically on connect. See
 [`names/example.cfg`](names/example.cfg) for the format.
 
+FA boards with an ESP32 socket (first: **SternFA** PCB v2.00 from 5.0.6) can also boot their
+**game rom** from here instead of from their SD card: right after reading its DIP switches
+the board asks for its game. Roms are kept per device like the naming files -
+`<hardware>/<nnn>.bin`, uploaded from the browser or loaded from
+[lisy.dev](https://lisy.dev/swrep/misc/FA_Control/roms/) (`roms/<hardware>/<nnn>[_<title>].bin`).
+That is the one exchange FA_Control takes part in without CONNECT - it only answers, it never
+starts it. See the technical reference, section 6.3.
+
 | | |
 |---|---|
 | Board | ESP32-C3, USB-Serial/JTAG |

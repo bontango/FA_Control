@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
 
@@ -84,6 +85,21 @@ int lisy_get_2bytes(uint8_t cmd, uint8_t param, uint8_t *b1, uint8_t *b2);
 /* NUL-terminierten String holen. Rueckgabe = Laenge ohne NUL, -1 bei Timeout.
  * Nicht druckbare Zeichen werden verworfen, out ist immer terminiert. */
 int lisy_get_string(uint8_t cmd, char *out, size_t len);
+
+/* ---- Direkter Buszugriff (rom_boot.c) ------------------------------------ */
+/* Fuer den SternFA-Boot-Lader, der AUSSERHALB von LISY auf derselben UART
+ * spricht. Nehmen, lesen/schreiben, zurueckgeben -- dazwischen sendet keine
+ * LISY-Funktion. lisy_bus_take() gibt false zurueck, wenn der Bus innerhalb
+ * von timeout_ms nicht frei wurde. */
+bool lisy_bus_take(uint32_t timeout_ms);
+void lisy_bus_give(void);
+/* Bytes im Empfangspuffer -- ohne den Bus zu nehmen, zum Nachsehen. */
+size_t lisy_bus_available(void);
+/* Rueckgabe: Anzahl gelesener Bytes (0 bei Timeout). */
+int lisy_bus_read(uint8_t *buf, size_t len, uint32_t timeout_ms);
+void lisy_bus_write(const uint8_t *buf, size_t len);
+/* Wartet, bis alles Gesendete draussen ist, und verwirft dann den Empfang. */
+void lisy_bus_drain(void);
 
 /* Watchdog (0x65 alle 500 ms per esp_timer) */
 void lisy_watchdog_enable(bool en);

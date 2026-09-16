@@ -34,6 +34,10 @@ not know the area exists: tile **07 · NAMES** simply does not appear. That is n
 it is the designed fallback; everything else works. The only cure is a full installation,
 because only that writes the partition table.
 
+**The GAME ROMS menu is missing.** Same cause, same cure: game roms have a storage area of
+their own since firmware 1.21, and only a full installation creates it. Tile **08 · GAME ROMS**
+appears afterwards; the naming files stay where they are.
+
 **A new or blank board.** A fresh ESP32-C3 has no bootloader and no firmware. It cannot
 serve a web page, so it cannot update itself. Something has to write the first complete
 image, and this is that something.
@@ -107,7 +111,7 @@ the log is still running.
    network and is reachable at `http://fa-control.local`. If not, it opens its own
    `FA-Control` network — see
    [§ 4 of the User Manual](https://github.com/bontango/FA_Control/blob/main/docs/USER_MANUAL.md#4-setting-up-wi-fi).
-   Tile **07 · NAMES** should now be there.
+   Tiles **07 · NAMES** and **08 · GAME ROMS** should now be there.
 
 ---
 
@@ -119,6 +123,7 @@ knows survives:
 | | |
 |---|---|
 | Wi-Fi credentials | **kept** — they live in a separate area (NVS) that is not written |
+| Uploaded game roms | **kept**, if the device had the rom area already (v1.21 or newer); otherwise the area is new and empty |
 | Uploaded naming files | **kept**, if the device had the naming area already *and* is running v1.18 or newer. Coming from an older version the area moves (see below), so it starts out empty — as it does on a device that is getting the partition table for the first time. |
 | Coil pulse time and the selected naming file | **kept** — same area as the Wi-Fi credentials |
 | The choice of which firmware slot to boot | **reset** to the first slot, which is the one just written |

@@ -227,7 +227,7 @@ All under `main/`.
 
 | File | Responsibility |
 |---|---|
-| `main.c` | `app_main`: NVS → config → board → **DIP 1 gate** → LISY → Wi-Fi → web server → power task |
+| `main.c` | `app_main`: NVS → config → board → **DIP 1 gate** → LISY → naming files → SternFA rom boot → Wi-Fi → web server → power task |
 | `board_pins.h` | central GPIO assignment (single source of truth) |
 | `board.c/h` | GPIO setup: control request, button, DIP bank, LED, reserved I2C pins |
 | `power_mgr.c/h` | DIP 1 as power switch, deep sleep + wake, blink indicator |
@@ -239,6 +239,7 @@ All under `main/`.
 | `fw_update.c/h` | OTA from lisy.dev (`esp_https_ota`) |
 | `repo.c/h` | shared access to the lisy.dev file store: directory listing, download, file name check |
 | `names.c/h` | naming files on the LittleFS partition (management only, no parsing) |
+| `rom_boot.c/h` | game roms: own partition, import check, lisy.dev download, answering the boot request |
 | `web/index.html` | single-page frontend, gzipped and embedded at build time |
 
 ### 6.1 The NVS blob has a version
@@ -370,7 +371,7 @@ covered in [§ 6.2.3](#623-the-v118-layout-change).
 
 The other direction is the one that matters: **`esp_https_ota` never writes the partition
 table** (it lives at `0x8000`). A device updated only over the air therefore does not have
-the partition. That is not an error case — `names_init()` returns `ESP_ERR_NOT_FOUND`,
+the partition (nor, since v1.21, `roms` - § 6.3.2). That is not an error case — `names_init()` returns `ESP_ERR_NOT_FOUND`,
 `names_ready()` stays false, every naming endpoint answers `No name storage on this
 device`, `/api/config` reports `"namesfs":0` and the frontend hides tile 07. Everything
 else works unchanged. To actually get the partition, flash over USB
@@ -407,6 +408,129 @@ Three consequences:
   while the new area is formatted on first mount (`format_if_mount_failed`). NVS is
   untouched at `0x9000`: Wi-Fi credentials, pulse time and the selected naming file survive.
 
+### 6.2.4 The v1.21 layout change
+
+v1.21 takes 512 kB of the v1.18 reserve back for the game roms (§ 6.3):
+
+| Partition | v1.18 | v1.21 |
+|---|---|---|
+| `ota_0` | `0x20000`, 1856 kB | `0x20000`, **1600 kB** (`0x190000`) |
+| `ota_1` | `0x1F0000`, 1856 kB | `0x1B0000`, **1600 kB** (`0x190000`) |
+| `roms` | - | `0x340000`, **512 kB** (`0x80000`) |
+| `names` | `0x3C0000`, 256 kB | `0x3C0000`, 256 kB - unchanged |
+
+`0x20000 + 2 × 0x190000 + 0x80000 + 0x40000 = 0x400000`. The app stood at 1231 kB when this
+was set, which leaves about 25 %.
+
+- **`names` stays where it is, so a USB installation keeps the naming files** - unlike the
+  v1.18 change. `roms` is inserted in front of it on purpose.
+- The mixed-operation limit is unchanged: a device with a v1.17 table has 1536 kB slots, so
+  `FA_Control.bin` has to stay below that for OTA to keep working everywhere. The new, smaller
+  1600 kB slot is not the tighter limit.
+- A device with an older table has no `roms` partition; it answers every boot request with
+  `N` and hides tile 08.
+- **v1.20 is not compatible.** It carried a first, SternFA-only version of the boot loader:
+  request `A5 5A 52 <game>` without device ID and length, roms flat in `/names/rom/`. The
+  FPGA side of that version never left the bench. A v1.20 device receiving the current request
+  reads the length byte as the game number and may answer with the wrong game - update such a
+  device to v1.21 before using the rom boot. Roms uploaded with v1.20 are not carried over.
+
+---
+
+## 6.3 Game roms
+
+FA boards with an ESP32 socket can boot without their SD card: right after reading its DIP
+switches the FPGA asks this device for its game. First implemented in SternFA (PCB v2.00,
+5.0.6). Counterpart in every FA project: `rtl/fa_control/esp_rom_loader.vhd`.
+
+**Deliberately not LISY.** `fa_control.vhd` keeps speaking plain LISY API 0.12 so a real LISY
+host could still log on. The boot request happens before any LISY session, on the same UART;
+the FPGA keeps `fa_control` deaf and off the TX pin while its loader runs.
+
+```
+FPGA -> ESP   A5 5A 52 <len> <hw, len bytes> <game> <sectors>   every 250 ms, for at most 3 s
+ESP -> FPGA   A5 5A 4E                                          no rom -> SD card
+              A5 5A 44 <sectors*512 bytes> <crc_hi> <crc_lo>
+```
+
+- `hw` is the board's ID as reported by LISY opcode 0 (`HW_NAME` in the FPGA), without NUL,
+  1-15 characters. `game` is the SD card index, the number on the boot display. `sectors` is
+  what the board wants, in 512-byte units (SternFA 16 = 8 kB, WillFA7S would ask 64 = 32 kB).
+- The ESP sends the stored data and pads with the stored fill byte up to the requested
+  length. The CRC is CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF, not reflected, check value
+  0x29B1) over exactly the bytes sent - the same `crc16_ccitt.vhd` the SD card readers use. It
+  protects the transfer only. That the VHDL equations and `rom_boot_crc16()` agree was checked
+  in Python.
+- Without the `roms` partition (device only ever updated over the air) the ESP answers `N`
+  at once, so the board does not wait.
+
+### 6.3.1 Naming and storage
+
+| where | path |
+|---|---|
+| lisy.dev | `roms/<HW>/<nnn>.bin` or `roms/<HW>/<nnn>_<title>.bin` |
+| device | `/roms/<HW>/<nnn>.bin` |
+| REST, UI | `<HW>/<nnn>`, e.g. `SternFA/012` |
+
+The same two levels as the naming files (`names/<HW>/<nnn>.cfg`), and the same key: `<HW>` is
+the device ID, `<nnn>` the three-digit game number. A title on lisy.dev is for people browsing
+the folder; only the leading three digits count, and the device stores without it. A title for
+the list comes, if wanted, from the naming file of the same key. The HW folder is matched
+without regard to case, as with the naming files.
+
+That the keys line up needs the board to report the **full** game number at opcode 8.
+SternFA did not until 5.0.6 (one digit, so games 5, 15 and 105 shared a naming file);
+`fa_control.vhd` has had a `GAME_DIGITS` generic since then.
+
+**File content** is the game slot exactly as it goes onto the SD card: a multiple of 512
+bytes, at most 64 kB. A full 64 kB slot carries a CRC16 over its first 32 kB at
+0xFFFE/0xFFFF, big endian (SternFA, WillFA7S), and is rejected if it does not match. Smaller
+slots have no CRC field (WillFA7, 12 kB) and are taken as they are. Checked against
+`SternFA_SD_098_CRC.img`: 204 games pass; the filler slots (CRC `FFFF`), the empty slots and
+the text block at game 238 are rejected - the SD readers would reject them too.
+
+**Stored format:** 8-byte header `'F' 'A' 'R' 1 <fill> 0 <len_hi> <len_lo>` plus the data up to
+the last byte that is not the fill byte. The fill byte is the last data byte of the slot (the
+one before the CRC field). A SternFA game comes down from 64 kB to about 8 kB this way.
+
+**Import** (upload and download alike) goes through `/roms/.tmp`, so no 64 kB buffer is ever
+held in RAM: the body or the download is streamed into it, `rom_import_tmp()` checks size and
+CRC in one pass that also finds the last non-fill byte, then copies the data into place and
+removes the temp file. A leftover temp file is removed at mount.
+
+### 6.3.2 The `roms` partition
+
+```
+roms,     data, littlefs, 0x340000, 0x80000,
+```
+
+512 kB of its own, mounted at `/roms` by `rom_boot_init()` with the same pattern as
+`names_init()` (`format_if_mount_failed`, `rom_boot_ready()`, `/api/config` reports
+`"romfs"`, tile 08 is hidden without it). It is a partition of its own rather than a folder in
+`names` because LittleFS mounts a partition at exactly one place, and `/roms/<HW>` next to
+`/names/<HW>` mirrors lisy.dev. About 60 SternFA games fit. Like `names` it only arrives with a
+USB installation, see [§ 6.2.2](#622-the-partition-needs-a-usb-flash) and
+[§ 6.2.4](#624-the-v121-layout-change).
+
+### 6.3.3 Answering
+
+- `boot_task` polls the UART receive buffer every 10 ms **without** taking the bus; only
+  when bytes are waiting does it take the LISY mutex (`lisy_bus_take()`), so the web
+  interface's commands are not held up.
+- After an answer `lisy_bus_drain()` waits for the TX to finish and throws away what arrived
+  meanwhile: the FPGA repeats its request until it sees the header, and a second answer would
+  end up in `fa_control`.
+- The file length is checked against the header **before** `D` goes out. A read error after
+  that can only be reported one way: the ESP sends the inverted CRC, the FPGA discards and
+  falls back to its SD card, and `last.r` says `E`.
+- **Started before Wi-Fi** in `app_main` - the FPGA only asks for 3 s after power on. In deep
+  sleep (DIP 1 OFF) nothing answers and the board falls back to its SD card after those 3 s.
+- **Why the header:** on a board without a module the FPGA's receive line is an open mux
+  input. Noise must never pass as an answer; the header plus the CRC make sure of that.
+- `GET /api/romlist` also reports the last request since boot
+  (`"last":{"hw","g","r","ms"}`) - the only way to see from the browser what the board asked
+  for and got, and the source of the *LAST BOOT REQUEST* block in tile 08.
+
 ---
 
 ## 7. REST API
@@ -440,6 +564,12 @@ Query parameters only — there is no JSON parsing anywhere. Responses are built
 | `GET /api/namefetchlist` | device folders on lisy.dev as JSON |
 | `GET /api/namefetchlist?dev=AtariFA` | `.cfg` files inside one folder |
 | `POST /api/namefetch?file=AtariFA%2F002.cfg` | download a naming file from lisy.dev |
+| `GET /api/romlist` | stored game roms (`n` = `<HW>/<nnn>`, `s` = stored bytes), bytes used, last boot request |
+| `POST /api/romup?file=SternFA%2F012` | upload a game slot - body like `nameup` |
+| `POST /api/romdel?file=SternFA%2F012` | delete a stored game rom |
+| `GET /api/romfetchlist` | device folders below `roms/` on lisy.dev |
+| `GET /api/romfetchlist?dev=SternFA` | `.bin` files inside one folder |
+| `POST /api/romfetch?file=SternFA%2F012_Stars.bin` | download a game slot from lisy.dev and store it as `SternFA/012` |
 
 The `/` inside a path arrives URL-encoded as `%2F`; `get_param()` decodes it before the
 handler sees it.
@@ -447,12 +577,12 @@ handler sees it.
 
 `cfg.max_uri_handlers` in `web_server_start()` must be at least as large as the `uris[]`
 array — otherwise the last entries are silently not registered and fall through to the
-captive-portal handler. It sat at exactly 16 with 16 entries; v1.17 raised it to 24.
-**Count along when adding an endpoint.**
+captive-portal handler. It sat at exactly 16 with 16 entries; v1.17 raised it to 24, the
+game rom endpoints to 32 (29 entries). **Count along when adding an endpoint.**
 
-`POST /api/nameup` carries the file content in the body (a text file does not fit sensibly
-into a URL); the file name stays a query parameter. Everything else keeps to query
-parameters.
+`POST /api/nameup` and `POST /api/romup` carry the file content in the body (a file does not
+fit sensibly into a URL); the name resp. game number stays a query parameter. Everything else
+keeps to query parameters.
 
 The control endpoints (`lamp`, `coil`, `sound`, `display`) validate against
 `fa_connect_info()->…`. Without granted control those counts are 0, so every command ends
@@ -568,12 +698,13 @@ renamed button has to be followed up there.
   reboots. Progress is polled via `/api/fwstatus`.
 - Requires STA mode — there is no internet in AP mode, and both endpoints reject with
   `No internet in AP mode`.
-- Partitions: `partitions.csv`, `ota_0` and `ota_1` at 0x20000 / 0x1F0000, 1856 kB each,
-  `names` (LittleFS) at 0x3C0000, 256 kB, flash size 4 MB — see
-  [§ 6.2.3](#623-the-v118-layout-change) for what changed in v1.18 and what it means for
-  devices still carrying the old table. The running version comes from
+- Partitions: `partitions.csv`, `ota_0` and `ota_1` at 0x20000 / 0x1B0000, 1600 kB each,
+  `roms` (LittleFS) at 0x340000, 512 kB, `names` (LittleFS) at 0x3C0000, 256 kB, flash size
+  4 MB — see [§ 6.2.3](#623-the-v118-layout-change) and
+  [§ 6.2.4](#624-the-v121-layout-change) for what changed and what it means for devices still
+  carrying an old table. The running version comes from
   `version.txt` (PROJECT_VER) via `esp_app_get_description()`. **An OTA update writes the
-  app partition only** — never the partition table, the bootloader or `names`.
+  app partition only** — never the partition table, the bootloader, `names` or `roms`.
 - The httpd task runs with `stack_size = 10240` because the TLS client for the listing
   executes inside it.
 

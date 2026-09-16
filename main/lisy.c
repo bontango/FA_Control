@@ -61,6 +61,44 @@ static int cmd_resp1(const uint8_t *data, size_t len)
     return (n == 1) ? resp : -1;
 }
 
+/* ---- Direkter Buszugriff (rom_boot.c) ------------------------------------ */
+
+bool lisy_bus_take(uint32_t timeout_ms)
+{
+    return xSemaphoreTake(s_mutex, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+}
+
+void lisy_bus_give(void)
+{
+    xSemaphoreGive(s_mutex);
+}
+
+size_t lisy_bus_available(void)
+{
+    size_t n = 0;
+    uart_get_buffered_data_len(LISY_UART, &n);
+    return n;
+}
+
+int lisy_bus_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
+{
+    int n = uart_read_bytes(LISY_UART, buf, len, pdMS_TO_TICKS(timeout_ms));
+    return n < 0 ? 0 : n;
+}
+
+void lisy_bus_write(const uint8_t *buf, size_t len)
+{
+    uart_write_bytes(LISY_UART, buf, len);
+}
+
+void lisy_bus_drain(void)
+{
+    /* Ohne Sendepuffer kehrt uart_write_bytes() zurueck, sobald die Bytes im
+     * FIFO liegen -- nicht, wenn sie gesendet sind. */
+    uart_wait_tx_done(LISY_UART, pdMS_TO_TICKS(2000));
+    uart_flush_input(LISY_UART);
+}
+
 /* ---- Watchdog ----------------------------------------------------------- */
 
 static void wd_timer_cb(void *arg)

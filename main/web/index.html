@@ -259,6 +259,7 @@ legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;f
     <button class="tile" data-s="disps" disabled><span class="no">05</span><span class="nm">DISPLAYS</span><span class="ds">7-SEGMENT DISPLAYS</span></button>
     <button class="tile" data-s="wifi"><span class="no">06</span><span class="nm">WI-FI</span><span class="ds">NETWORK · FIRMWARE</span></button>
     <button class="tile" data-s="names" id="t_names"><span class="no">07</span><span class="nm">NAMES</span><span class="ds">NAMING FILES · UPLOAD · LOAD</span></button>
+    <button class="tile" data-s="roms" id="t_roms"><span class="no">08</span><span class="nm">GAME ROMS</span><span class="ds">BOOT WITHOUT SD CARD · UPLOAD · LOAD</span></button>
   </div>
 </div>
 
@@ -369,6 +370,56 @@ name=Airborne Avenger
   </fieldset>
 </section>
 
+<section id="roms"><div class="shead"><button class="back">◀ MENU</button><h2>GAME ROMS</h2></div>
+  <p class="hint">BOARDS THAT SUPPORT IT (STERNFA FROM 5.0.6) ASK THIS DEVICE FOR THEIR GAME RIGHT
+    AFTER POWER ON. IF A ROM IS STORED HERE THE BOARD BOOTS FROM IT — NO SD CARD NEEDED.
+    OTHERWISE IT READS ITS SD CARD AS ALWAYS. ROMS ARE KEPT PER DEVICE, LIKE THE NAMING FILES:
+    <b>DEVICE/NNN</b>, NNN BEING THE GAME NUMBER ON THE BOOT DISPLAY. THIS DEVICE HAS TO BE AWAKE
+    (DIP1 ON) WHEN THE MACHINE IS SWITCHED ON. WORKS WITHOUT CONNECT.</p>
+  <fieldset><legend>LAST BOOT REQUEST</legend>
+    <div class="val" style="border-color:var(--cu)">
+      <span>DEVICE</span><b id="rmdev">–</b>
+    </div>
+    <div class="val" style="border-color:var(--cu)">
+      <span>GAME</span><b id="rmgame">–</b>
+    </div>
+    <p class="hint" id="rmexp" style="margin:.8rem 0 0">–</p>
+    <div class="row" id="rmgetrow" style="display:none">
+      <button class="btn" id="rmgetnow">GET FROM LISY.DEV</button>
+    </div>
+  </fieldset>
+  <fieldset><legend>STORED ON THIS DEVICE</legend>
+    <div id="romlist"></div>
+    <p class="hint" id="romfree" style="margin:.8rem 0 0">–</p>
+  </fieldset>
+  <fieldset><legend>ADD A GAME</legend>
+    <div class="row" style="margin-top:0">
+      <span class="hint" style="margin:0">DEVICE</span>
+      <input type="text" id="romdev" placeholder="SternFA" style="flex:0 1 9rem">
+      <span class="hint" style="margin:0">GAME</span>
+      <input type="number" id="romgame" min="0" max="255" style="width:5rem">
+    </div>
+    <div class="row">
+      <input type="file" id="romfile">
+      <button class="btn" id="romup">UPLOAD</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="romfetch">LOAD LIST FROM LISY.DEV</button>
+      <select id="romdevsel" style="display:none"></select>
+      <select id="romsel" style="display:none"></select>
+      <button class="btn" id="romget" style="display:none">DOWNLOAD</button>
+    </div>
+    <div class="row"><span class="hint" id="romstat" style="margin:0"></span></div>
+  </fieldset>
+  <fieldset><legend>FILE FORMAT</legend>
+    <p class="hint" style="margin:0">THE GAME SLOT EXACTLY AS WRITTEN TO THE SD CARD: A MULTIPLE OF
+      512 BYTES, AT MOST 65536. A FULL 65536-BYTE SLOT CARRIES ITS CHECKSUM IN THE LAST TWO BYTES
+      AND IS REJECTED IF IT DOES NOT MATCH; SMALLER SLOTS HAVE NONE. ON LISY.DEV THE FILES LIVE IN
+      <b>ROMS/&lt;DEVICE&gt;/</b> AND ARE NAMED <b>NNN.BIN</b> OR <b>NNN_TITLE.BIN</b> — ONLY THE
+      NUMBER COUNTS.</p>
+  </fieldset>
+</section>
+
 </main>
 <div id="toast"></div>
 <script>
@@ -403,6 +454,7 @@ function show(id){
   clearInterval(homeTimer);homeTimer=null;
   if(id==="switches"){poll();pollTimer=setInterval(poll,1000)}
   if(id==="names")nmList();
+  if(id==="roms")romList();
   if(!id)homeTimer=setInterval(refreshConn,2000);
 }
 document.querySelectorAll(".tile").forEach(function(t){
@@ -537,12 +589,14 @@ function applyConn(){
       (cfg.wd?"RUNNING":"OFF")+" · LAST REPLY "+cfg.wdlast;
   }
 
-  /* Steuerungskacheln 01-05 nur bei gewaehrter Kontrolle. WI-FI und NAMES
-     bleiben offen: Netz einrichten und Dateien verwalten geht auch ohne. */
+  /* Steuerungskacheln 01-05 nur bei gewaehrter Kontrolle. WI-FI, NAMES und
+     GAME ROMS bleiben offen: Netz einrichten und Dateien verwalten geht auch ohne. */
   document.querySelectorAll(".tile").forEach(function(t){
-    t.disabled=(t.dataset.s!=="wifi"&&t.dataset.s!=="names")&&!live});
+    t.disabled=(t.dataset.s!=="wifi"&&t.dataset.s!=="names"&&t.dataset.s!=="roms")&&!live});
   /* Ohne Partition (Geraet nur per OTA aktualisiert) gibt es nichts zu verwalten. */
   $("#t_names").style.display=cfg.namesfs?"":"none";
+  /* ROMs haben eine eigene Partition -- sie kommt wie die der Namen nur per USB. */
+  $("#t_roms").style.display=cfg.romfs?"":"none";
 }
 
 /* Auf der Startseite mitlaufen lassen: die Gegenstelle kann die Kontrolle
@@ -809,6 +863,132 @@ $("#nmget").onclick=function(){
       $("#nmstat").textContent="DOWNLOADED "+path.toUpperCase();nmRefreshAll()})
     .catch(function(e){$("#nmstat").textContent="ERROR: "+e.message.toUpperCase()})};
 
+/* ---- Spiel-ROMs ----
+   Kennung wie bei den Namensdateien: <DEVICE>/<NNN>. Welche Maschine zuletzt
+   gefragt hat, weiss der ESP aus der Boot-Anfrage -- dafuer braucht es kein CONNECT. */
+function pad3(n){n=String(n);while(n.length<3)n="0"+n;return n}
+
+function romMachine(j){
+  var l=j.last;
+  $("#rmgetrow").style.display="none";
+  if(!l){
+    $("#rmdev").textContent="–";$("#rmgame").textContent="–";
+    $("#rmexp").textContent="NO BOOT REQUEST SINCE THIS DEVICE STARTED";
+    return}
+  var id=l.hw+"/"+pad3(l.g);
+  $("#rmdev").textContent=l.hw;$("#rmgame").textContent=pad3(l.g);
+  if(!$("#romdev").value)$("#romdev").value=l.hw;
+  if($("#romgame").value==="")$("#romgame").value=l.g;
+  var have=(j.roms||[]).some(function(r){return r.n.toLowerCase()===id.toLowerCase()});
+  var when=" ("+Math.round(l.ms/1000)+" S AFTER THIS DEVICE STARTED)";
+  if(l.r==="D"){$("#rmexp").textContent="ROM "+id.toUpperCase()+" SENT — BOARD BOOTED WITHOUT SD CARD"+when;return}
+  if(l.r==="E"){$("#rmexp").textContent="READ ERROR WHILE SENDING "+id.toUpperCase()+" — BOARD USED ITS SD CARD"+when;return}
+  $("#rmexp").textContent=(have?"ROM "+id.toUpperCase()+" IS STORED NOW — SWITCH THE MACHINE OFF AND ON"
+    :"NO ROM "+id.toUpperCase()+" HERE — BOARD USED ITS SD CARD")+when;
+  if(have||wifiMode==="ap")return;
+  fetch("/api/romfetchlist?dev="+encodeURIComponent(l.hw)).then(function(r){
+    return r.ok?r.json():null}).then(function(j2){
+    if(!j2||!j2.files)return;
+    var hit=null,pre=pad3(l.g);
+    j2.files.forEach(function(f){if(!hit&&(f===pre+".bin"||f.indexOf(pre+"_")===0))hit=f});
+    if(!hit)return;
+    $("#rmexp").textContent="NO ROM "+id.toUpperCase()+" HERE, BUT "+hit.toUpperCase()+" IS ON LISY.DEV";
+    $("#rmgetrow").style.display="";
+    $("#rmgetnow").onclick=function(){romGet(l.hw+"/"+hit,$("#rmgetnow"))}
+  }).catch(function(){})
+}
+
+function romList(){
+  getj("/api/romlist",function(j){
+    romMachine(j);
+    var box=$("#romlist");box.innerHTML="";
+    if(!j.roms||!j.roms.length){
+      box.innerHTML='<p class="hint" style="margin:0">NO GAME ROMS YET — BOARDS BOOT FROM THEIR SD CARD.</p>';
+    } else {
+      j.roms.sort(function(a,b){return a.n.toLowerCase()<b.n.toLowerCase()?-1:1});
+      j.roms.forEach(function(r){
+        var row=document.createElement("div");row.className="nrow";
+        var nn=document.createElement("span");nn.className="nn";nn.textContent=r.n;
+        var nb=document.createElement("span");nb.className="nb";nb.textContent=r.s+" B";
+        var del=document.createElement("button");del.className="btn warn";
+        del.textContent="DELETE";
+        del.onclick=function(){
+          if(!confirm("Delete the rom "+r.n+"?"))return;
+          api("/api/romdel?file="+encodeURIComponent(r.n),function(){toast("DELETED");romList()})};
+        row.appendChild(nn);row.appendChild(nb);row.appendChild(del);
+        box.appendChild(row)})}
+    $("#romfree").textContent=(j.total)
+      ? "STORAGE: "+j.used+" OF "+j.total+" BYTES USED"
+      : "STORAGE: –";
+  })}
+
+/* <nnn>.bin oder <nnn>_<titel>.bin -- dann Spielnummer vorbelegen */
+$("#romfile").onchange=function(){
+  var f=this.files[0];if(!f)return;
+  var m=/^(\d{3})[._]/.exec(f.name);
+  if(m)$("#romgame").value=parseInt(m[1],10)};
+
+$("#romup").onclick=function(){
+  var f=$("#romfile").files[0];
+  var dev=$("#romdev").value.trim();
+  var g=$("#romgame").value.trim();
+  if(!/^[A-Za-z0-9._-]{1,15}$/.test(dev)){toast("ENTER THE DEVICE, E.G. SternFA");return}
+  if(!/^\d+$/.test(g)||parseInt(g,10)>255){toast("ENTER THE GAME NUMBER (0-255)");return}
+  if(!f){toast("CHOOSE A FILE FIRST");return}
+  if(f.size<512||f.size>65536||f.size%512){toast("SIZE MUST BE A MULTIPLE OF 512, AT MOST 65536");return}
+  var id=dev+"/"+pad3(g);
+  $("#romstat").textContent="UPLOADING "+id.toUpperCase()+" …";
+  fetch("/api/romup?file="+encodeURIComponent(id),{method:"POST",body:f})
+    .then(function(r){
+      if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+      $("#romstat").textContent="STORED "+id.toUpperCase();
+      $("#romfile").value="";romList()})
+    .catch(function(e){$("#romstat").textContent="ERROR: "+e.message.toUpperCase()})};
+
+function romGet(path,btn){
+  if(btn)btn.disabled=true;
+  $("#romstat").textContent="DOWNLOADING "+path.toUpperCase()+" …";
+  fetch("/api/romfetch?file="+encodeURIComponent(path),{method:"POST"})
+    .then(function(r){
+      if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+      $("#romstat").textContent="STORED "+path.toUpperCase();
+      if(btn)btn.disabled=false;romList()})
+    .catch(function(e){
+      $("#romstat").textContent="ERROR: "+e.message.toUpperCase();
+      if(btn)btn.disabled=false})}
+
+/* Zweistufig wie bei den Namen: erst die Geraeteordner, dann deren Dateien. */
+$("#romfetch").onclick=function(){
+  $("#romstat").textContent="LOADING LIST …";
+  fetch("/api/romfetchlist").then(function(r){
+    if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+    return r.json()}).then(function(j){
+    var sel=$("#romdevsel");sel.innerHTML="";
+    (j.files||[]).forEach(function(d){
+      var o=document.createElement("option");o.value=d.replace(/\/$/,"");o.textContent=o.value;
+      sel.appendChild(o)});
+    if(!sel.options.length){$("#romstat").textContent="NO DEVICE FOLDERS ON LISY.DEV";return}
+    var want=$("#romdev").value.trim().toLowerCase();
+    for(var i=0;i<sel.options.length;i++)if(sel.options[i].value.toLowerCase()===want)sel.selectedIndex=i;
+    sel.style.display="";$("#romstat").textContent="";
+    sel.onchange=romFetchFiles;romFetchFiles()})
+    .catch(function(e){$("#romstat").textContent="ERROR: "+e.message.toUpperCase()})};
+
+function romFetchFiles(){
+  var dev=$("#romdevsel").value;
+  $("#romsel").style.display="none";$("#romget").style.display="none";
+  fetch("/api/romfetchlist?dev="+encodeURIComponent(dev)).then(function(r){
+    if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+    return r.json()}).then(function(j){
+    var sel=$("#romsel");sel.innerHTML="";
+    (j.files||[]).slice().sort().forEach(function(f){
+      if(!/^\d{3}[._]/.test(f))return;
+      var o=document.createElement("option");o.value=f;o.textContent=f;sel.appendChild(o)});
+    if(!sel.options.length){$("#romstat").textContent="NO ROMS IN "+dev.toUpperCase();return}
+    sel.style.display="";$("#romget").style.display="";
+    $("#romget").onclick=function(){romGet(dev+"/"+sel.value,$("#romget"))}})
+    .catch(function(e){$("#romstat").textContent="ERROR: "+e.message.toUpperCase()})}
+
 /* ---- Start ---- */
 function init(){
   getj("/api/config",function(c){cfg=c;build()});
@@ -823,6 +1003,7 @@ function init(){
       $("#fwstat").textContent="NOT AVAILABLE IN AP MODE (NO INTERNET)";
       /* Hochladen geht auch hier -- nur das Nachladen braucht Internet. */
       $("#nmfetch").disabled=true;
+      $("#romfetch").disabled=true;
       $("#nmstat").textContent="DOWNLOAD NOT AVAILABLE IN AP MODE — UPLOAD STILL WORKS"}})}
 init();
 show(null);

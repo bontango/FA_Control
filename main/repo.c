@@ -114,8 +114,14 @@ esp_err_t repo_list_json(const char *base_url, const char *suffix,
      * heisst es: genau der eine am Ende -- so faellt der Elternlink
      * href="/swrep/misc/FA_Control/" ueber seine uebrigen Schraegstriche
      * heraus, und die Sortierlinks href="?C=N;O=D" schon ueber das Suffix. */
-    char names[REPO_MAX_FILES][REPO_MAX_NAME];
-    char *idx[REPO_MAX_FILES];
+    char (*names)[REPO_MAX_NAME] = malloc(REPO_MAX_FILES * REPO_MAX_NAME);
+    char **idx = malloc(REPO_MAX_FILES * sizeof(char *));
+    if (!names || !idx) {
+        free(names);
+        free(idx);
+        free(body);
+        return ESP_ERR_NO_MEM;
+    }
     int count = 0;
     char *p = body;
     while (count < REPO_MAX_FILES && (p = strstr(p, "href=\"")) != NULL) {
@@ -138,12 +144,23 @@ esp_err_t repo_list_json(const char *base_url, const char *suffix,
 
     qsort(idx, count, sizeof(idx[0]), cmp_desc);
 
+    /* Jeder Eintrag nur, wenn danach noch der Abschluss "]}" passt. */
     size_t w = snprintf(out, out_len, "{\"files\":[");
-    for (int i = 0; i < count && w < out_len; i++) {
+    int shown = 0;
+    for (int i = 0; i < count; i++) {
+        size_t need = strlen(idx[i]) + 3 + (i ? 1 : 0);
+        if (w + need + 3 > out_len) {
+            break;
+        }
         w += snprintf(out + w, out_len - w, "%s\"%s\"", i ? "," : "", idx[i]);
+        shown++;
     }
-    if (w < out_len) {
-        snprintf(out + w, out_len - w, "]}");
+    snprintf(out + w, out_len - w, "]}");
+    free(names);
+    free(idx);
+    if (shown < count) {
+        ESP_LOGW(TAG, "%d von %d Eintraegen '%s' passen nicht in die Antwort",
+                 count - shown, count, suffix);
     }
     ESP_LOGI(TAG, "%d Dateien '%s' gefunden", count, suffix);
     return ESP_OK;

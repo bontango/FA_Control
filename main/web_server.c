@@ -14,6 +14,8 @@
 #include "fw_update.h"
 #include "lisy.h"
 #include "names.h"
+#include "repo.h"
+#include "rom_boot.h"
 #include "wifi_mgr.h"
 
 static const char *TAG = "web";
@@ -146,14 +148,14 @@ static esp_err_t config_get_handler(httpd_req_t *req)
              "\"displays\":%u,\"dw\":[%s],\"wd\":%d,\"wdlast\":%d,\"pulse\":%u,"
              "\"conn\":%d,\"connmsg\":\"%s\","
              "\"hw\":\"%s\",\"fwver\":\"%s\",\"apiver\":\"%s\",\"game\":\"%s\","
-             "\"namesfs\":%d,\"names\":\"%s\",\"gameid\":\"%s\"}",
+             "\"namesfs\":%d,\"names\":\"%s\",\"gameid\":\"%s\",\"romfs\":%d}",
              ci->lamps, ci->coils, ci->switches, ci->sounds,
              ci->displays, dw,
              lisy_watchdog_enabled() ? 1 : 0, lisy_watchdog_last_result(),
              g_cfg.coil_pulse_ms,
              (int)ci->state, fa_connect_state_str(),
              ci->hw, ci->fw_ver, ci->api_ver, ci->game,
-             names_ready() ? 1 : 0, names_active(), gameid);
+             names_ready() ? 1 : 0, names_active(), gameid, rom_boot_ready() ? 1 : 0);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
 }
@@ -597,6 +599,138 @@ static esp_err_t wifi_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* ---- API: Spiel-ROMs (rom_boot.c) ---------------------------------------- */
+
+#define ROMS_NO_FS_MSG "No rom storage on this device - install over USB once"
+
+static esp_err_t romlist_get_handler(httpd_req_t *req)
+{
+    char *buf = malloc(ROM_BOOT_LIST_BUF);
+    if (!buf) {
+        return send_err(req, "Out of memory");
+    }
+    rom_list_json(buf, ROM_BOOT_LIST_BUF);   /* meldet "fs":0 selbst */
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t ret = httpd_resp_sendstr(req, buf);
+    free(buf);
+    return ret;
+}
+
+static esp_err_t rom_err(httpd_req_t *req, esp_err_t err)
+{
+    switch (err) {
+    case ESP_OK:
+        return send_ok(req);
+    case ESP_ERR_INVALID_SIZE:
+        return send_err(req, "Not a game slot - size must be a multiple of 512 bytes, at most 65536");
+    case ESP_ERR_INVALID_CRC:
+        return send_err(req, "Checksum mismatch - not a valid game image");
+    case ESP_ERR_INVALID_ARG:
+        return send_err(req, "Invalid name - expected DEVICE/nnn with nnn = 000-255");
+    case ESP_ERR_INVALID_STATE:
+        return send_err(req, ROMS_NO_FS_MSG);
+    case ESP_ERR_NOT_FOUND:
+        return send_err(req, "No rom stored under this name");
+    default:
+        return send_err(req, "Failed - storage full or server unreachable?");
+    }
+}
+
+/* Der Spielplatz kommt als Body und geht direkt in die Zwischendatei; im RAM
+ * steht nie mehr als ein Stueck davon. */
+static esp_err_t romup_post_handler(httpd_req_t *req)
+{
+    if (!rom_boot_ready()) {
+        return send_err(req, ROMS_NO_FS_MSG);
+    }
+    char id[ROM_BOOT_MAX_ID], hw[ROM_BOOT_MAX_HW + 1];
+    int game;
+    if (!get_param(req, "file", id, sizeof(id)) ||
+        !rom_parse_id(id, hw, sizeof(hw), &game)) {
+        return rom_err(req, ESP_ERR_INVALID_ARG);
+    }
+    if (req->content_len == 0 || req->content_len > ROM_BOOT_MAX_IMAGE) {
+        return rom_err(req, ESP_ERR_INVALID_SIZE);
+    }
+
+    FILE *fp = rom_tmp_open();
+    if (!fp) {
+        return rom_err(req, ESP_FAIL);
+    }
+    char chunk[1024];
+    size_t left = req->content_len;
+    bool ok = true;
+    while (left > 0) {
+        int n = httpd_req_recv(req, chunk, left < sizeof(chunk) ? left : sizeof(chunk));
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) {
+            continue;
+        }
+        if (n <= 0 || fwrite(chunk, 1, n, fp) != (size_t)n) {
+            ok = false;
+            break;
+        }
+        left -= n;
+    }
+    fclose(fp);
+    if (!ok) {
+        rom_tmp_discard();
+        return send_err(req, "Upload interrupted");
+    }
+    return rom_err(req, rom_import_tmp(hw, game));
+}
+
+static esp_err_t romdel_post_handler(httpd_req_t *req)
+{
+    char id[ROM_BOOT_MAX_ID];
+    if (!get_param(req, "file", id, sizeof(id))) {
+        return rom_err(req, ESP_ERR_INVALID_ARG);
+    }
+    return rom_err(req, rom_delete(id));
+}
+
+/* Wie namefetchlist: ohne "dev" die Geraeteordner, mit "dev" deren .bin */
+static esp_err_t romfetchlist_get_handler(httpd_req_t *req)
+{
+    if (wifi_mgr_get_mode() == WIFI_MGR_MODE_AP) {
+        return send_err(req, "No internet in AP mode");
+    }
+    char dev[ROM_BOOT_MAX_HW + 1] = "";
+    get_param(req, "dev", dev, sizeof(dev));
+
+    /* 64 Eintraege x ~40 Byte */
+    const size_t len = 3072;
+    char *buf = malloc(len);
+    if (!buf) {
+        return send_err(req, "Out of memory");
+    }
+    esp_err_t err = dev[0] ? rom_fetch_list_json(dev, buf, len)
+                           : rom_fetch_dev_json(buf, len);
+    if (err != ESP_OK) {
+        free(buf);
+        return send_err(req, err == ESP_ERR_INVALID_ARG ? "Invalid device name"
+                                                        : "Server unreachable");
+    }
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t ret = httpd_resp_sendstr(req, buf);
+    free(buf);
+    return ret;
+}
+
+static esp_err_t romfetch_post_handler(httpd_req_t *req)
+{
+    if (wifi_mgr_get_mode() == WIFI_MGR_MODE_AP) {
+        return send_err(req, "No internet in AP mode");
+    }
+    if (!rom_boot_ready()) {
+        return send_err(req, ROMS_NO_FS_MSG);
+    }
+    char path[REPO_MAX_NAME + ROM_BOOT_MAX_HW + 2];
+    if (!get_param(req, "file", path, sizeof(path))) {
+        return rom_err(req, ESP_ERR_INVALID_ARG);
+    }
+    return rom_err(req, rom_fetch(path));
+}
+
 /* ---- Start --------------------------------------------------------------- */
 
 esp_err_t web_server_start(void)
@@ -606,7 +740,7 @@ esp_err_t web_server_start(void)
     /* Muss >= Anzahl der Eintraege in uris[] sein, sonst werden die letzten
      * stillschweigend nicht registriert und laufen in den Captive-Portal-
      * Fallback. Beim Hinzufuegen eines Endpunkts hier mitzaehlen. */
-    cfg.max_uri_handlers = 28;
+    cfg.max_uri_handlers = 32;
     cfg.lru_purge_enable = true;
     /* TLS-Client (fwlist via mbedTLS) laeuft im httpd-Task -> mehr Stack noetig */
     cfg.stack_size = 10240;
@@ -640,6 +774,11 @@ esp_err_t web_server_start(void)
         { .uri = "/api/nameup",  .method = HTTP_POST, .handler = nameup_post_handler },
         { .uri = "/api/namefetchlist", .method = HTTP_GET,  .handler = namefetchlist_get_handler },
         { .uri = "/api/namefetch",     .method = HTTP_POST, .handler = namefetch_post_handler },
+        { .uri = "/api/romlist", .method = HTTP_GET,  .handler = romlist_get_handler },
+        { .uri = "/api/romup",   .method = HTTP_POST, .handler = romup_post_handler },
+        { .uri = "/api/romdel",  .method = HTTP_POST, .handler = romdel_post_handler },
+        { .uri = "/api/romfetchlist", .method = HTTP_GET,  .handler = romfetchlist_get_handler },
+        { .uri = "/api/romfetch",     .method = HTTP_POST, .handler = romfetch_post_handler },
         { .uri = "/logo.png",    .method = HTTP_GET,  .handler = logo_get_handler },
         /* Der Wildcard-Eintrag faengt alles Uebrige und muss zuletzt stehen. */
         { .uri = "/*",           .method = HTTP_GET,  .handler = root_get_handler },

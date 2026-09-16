@@ -17,11 +17,14 @@
  * web_server.c weisen das vorher ab.
  */
 
-#define REPO_MAX_FILES 20
+/* 64 statt frueher 20: ein Geraeteordner mit Spiel-ROMs hat schnell mehr als 20
+ * Eintraege. Das Namensfeld liegt deshalb im Heap, nicht auf dem Stack. */
+#define REPO_MAX_FILES 64
 #define REPO_MAX_NAME  64
 
 /* Verzeichnis-Listing holen und als {"files":["a.bin","b.bin"]} ablegen,
- * absteigend sortiert (neueste Version zuerst).
+ * absteigend sortiert (neueste Version zuerst). Passt nicht alles in out, wird
+ * die Liste gekuerzt -- das JSON bleibt gueltig.
  *
  * suffix = "/" listet die UNTERVERZEICHNISSE statt der Dateien -- Apache
  * schreibt sie als href="AtariFA/". Die Namen kommen dann mit Schraegstrich am

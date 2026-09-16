@@ -6,6 +6,7 @@
 #include "lisy.h"
 #include "names.h"
 #include "power_mgr.h"
+#include "rom_boot.h"
 #include "web_server.h"
 #include "wifi_mgr.h"
 
@@ -34,6 +35,12 @@ void app_main(void)
      * aktualisiert, die Tabelle wird dabei nicht geschrieben), laeuft alles
      * uebrige unveraendert weiter -- deshalb kein ESP_ERROR_CHECK. */
     names_init();
+
+    /* Spiel-ROMs: eigene Partition, ebenfalls Beiwerk. Die FA-Boards fragen beim
+     * Booten danach, aber nur 3 s lang -- deshalb vor dem WLAN, dessen Start
+     * dauert. Ohne Partition antwortet der Dienst sofort "kein ROM". */
+    rom_boot_init();
+    rom_boot_start();
 
     /* Beim Start wird bewusst nicht verbunden: solange niemand in der Oberflaeche
      * "CONNECT" drueckt, gehoert der Flipper sich selbst. Watchdog und Pulszeit

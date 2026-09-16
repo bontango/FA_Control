@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "repo.c" "board.c" "main.c" "app_config.c" "lisy.c" "fa_connect.c" "power_mgr.c" "wifi_mgr.c" "web_server.c" "fw_update.c" "names.c"
+    SRCS "repo.c" "board.c" "main.c" "app_config.c" "lisy.c" "fa_connect.c" "power_mgr.c" "wifi_mgr.c" "web_server.c" "fw_update.c" "names.c" "rom_boot.c"
     INCLUDE_DIRS "."
     PRIV_REQUIRES esp_http_server esp_wifi nvs_flash esp_netif esp_timer esp_driver_uart esp_driver_gpio lwip
                   esp_https_ota esp_http_client app_update esp_app_format mbedtls esp_hw_support
