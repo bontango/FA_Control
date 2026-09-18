@@ -144,7 +144,7 @@ footer a{color:var(--cu-dk);font-weight:700}
 <p class="lead">
   WRITES THE COMPLETE FLASH PACKAGE — BOOTLOADER, PARTITION TABLE, OTA DATA AND FIRMWARE —
   STRAIGHT TO THE ESP32-C3 OVER USB. NO WI-FI, NO ESP-IDF INSTALLATION.
-  USE THIS FOR A NEW BOARD, FOR A RESCUE, OR WHEN THE <b>NAMES</b> MENU IS MISSING
+  USE THIS FOR A NEW BOARD, FOR A RESCUE, OR WHEN THE <b>NAMES</b> OR <b>GAME ROMS</b> MENU IS MISSING
   BECAUSE THE DEVICE HAS ONLY EVER SEEN OVER-THE-AIR UPDATES.
 </p>
 
@@ -171,7 +171,7 @@ footer a{color:var(--cu-dk);font-weight:700}
     <tbody id="ftab"></tbody>
   </table>
   <p class="hint" style="margin-top:.7rem">
-    NOTHING ELSE IS TOUCHED — WI-FI CREDENTIALS (NVS) AND UPLOADED NAMING FILES SURVIVE.
+    NOTHING ELSE IS TOUCHED — WI-FI CREDENTIALS (NVS) AND UPLOADED NAMING FILES AND GAME ROMS SURVIVE.
     ONE EXCEPTION: COMING FROM A VERSION BEFORE 1.18 THE NAMING STORAGE MOVES AND STARTS EMPTY.
   </p>
 </fieldset>
@@ -206,7 +206,7 @@ var $=function(s){return document.querySelector(s)};
    ESP32); 0x20000 ist ota_0 aus partitions.csv. */
 var FILES=[
   {name:"bootloader.bin",       address:0x0,     what:"Second-stage bootloader"},
-  {name:"partition-table.bin",  address:0x8000,  what:"Partition table — carries the NAMES partition"},
+  {name:"partition-table.bin",  address:0x8000,  what:"Partition table — carries the NAMES and ROMS partitions"},
   {name:"ota_data_initial.bin", address:0xf000,  what:"OTA selection, reset to the first slot"},
   {name:"FA_Control.bin",       address:0x20000, what:"Firmware (ota_0)"}
 ];

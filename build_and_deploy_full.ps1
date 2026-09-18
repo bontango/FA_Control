@@ -4,7 +4,7 @@
 # Baut FA_Control und legt das VOLLSTAENDIGE Flash-Paket ab -- die vier Dateien,
 # die der USB-Installer (flasher\FA_Control_flasher.html) an den ESP32-C3 schreibt:
 #   - bootloader.bin         (Bootloader, Offset 0x0)
-#   - partition-table.bin    (Partitionstabelle, 0x8000 -- traegt die names-Partition)
+#   - partition-table.bin    (Partitionstabelle, 0x8000 -- traegt die names- und roms-Partition)
 #   - ota_data_initial.bin   (OTA-Auswahl, 0xf000)
 #   - FA_Control.bin         (Anwendung, 0x20000 = ota_0)
 # Dazu eine version.txt, aus der die Installerseite die angebotene Version liest.
