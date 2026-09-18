@@ -468,12 +468,15 @@ static esp_err_t namefetchlist_get_handler(httpd_req_t *req)
     char dev[NAMES_MAX_NAME] = "";
     get_param(req, "dev", dev, sizeof(dev));   /* leer = Geraeteliste */
 
-    char *buf = malloc(1536);
+    /* bis REPO_MAX_FILES = 256 Eintraege x ~10 Byte ("nnn.cfg",) -- der SternFA-
+     * Ordner hat 204; mit 1536 Byte war nach gut 140 Namen Schluss. */
+    const size_t len = 4096;
+    char *buf = malloc(len);
     if (!buf) {
         return send_err(req, "Out of memory");
     }
-    esp_err_t err = dev[0] ? names_fetch_list_json(dev, buf, 1536)
-                           : names_fetch_dev_json(buf, 1536);
+    esp_err_t err = dev[0] ? names_fetch_list_json(dev, buf, len)
+                           : names_fetch_dev_json(buf, len);
     if (err == ESP_ERR_INVALID_ARG) {
         free(buf);
         return send_err(req, "Invalid device name");

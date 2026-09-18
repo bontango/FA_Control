@@ -697,7 +697,9 @@ renamed button has to be followed up there.
   256 offsets. Beyond 256 matches the rest is ignored with a log warning; an answer that does
   not fit the caller's buffer is cut off as valid JSON, also with a warning. The caller for
   the rom folders (`/api/romfetchlist?dev=…`) therefore answers from 5 kB, enough for 256
-  names of the `nnn_xxxxx.bin` form.
+  names of the `nnn_xxxxx.bin` form, and since v1.23 the one for the naming files
+  (`/api/namefetchlist?dev=…`) from 4 kB instead of 1.5 kB — the SternFA folder holds 204
+  `nnn.cfg`, and a cut-off list would hide exactly the file the NAMES menu looks for.
   **`suffix = "/"` lists the sub-directories instead of the files**, which is how the device
   folders are enumerated. The one rule that makes both work from a single loop: slashes are
   allowed *inside* the suffix only. For `.cfg` that means none at all; for `/` it means the
