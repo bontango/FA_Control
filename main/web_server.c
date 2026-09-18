@@ -697,8 +697,8 @@ static esp_err_t romfetchlist_get_handler(httpd_req_t *req)
     char dev[ROM_BOOT_MAX_HW + 1] = "";
     get_param(req, "dev", dev, sizeof(dev));
 
-    /* 64 Eintraege x ~40 Byte */
-    const size_t len = 3072;
+    /* bis REPO_MAX_FILES = 256 Eintraege x ~17 Byte ("nnn_xxxxx.bin",) */
+    const size_t len = 5120;
     char *buf = malloc(len);
     if (!buf) {
         return send_err(req, "Out of memory");

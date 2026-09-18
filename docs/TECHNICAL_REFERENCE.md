@@ -683,10 +683,21 @@ renamed button has to be followed up there.
 `https://lisy.dev/swrep/misc/FA_Control/bin/`.
 
 - `repo_list_json()` ([`main/repo.c`](../main/repo.c)) fetches the Apache directory index
-  and scans it for `href="*<suffix>"` (max 20 entries), sorted descending so the newest is
-  first. Naming convention: `FA_Control_vX.YZ.bin`. The naming files under
-  `…/FA_Control/names/<DEVICE>/` are found the same way, only with `.cfg` — which is why the
-  scanner sits in `repo.c` instead of twice in the callers.
+  and scans it for `href="*<suffix>"` (max `REPO_MAX_FILES` = 256 entries), sorted
+  descending so the newest is first. Naming convention: `FA_Control_vX.YZ.bin`. The naming
+  files under `…/FA_Control/names/<DEVICE>/` and the game roms under
+  `…/FA_Control/roms/<DEVICE>/` (§ 6.3.1) are found the same way, only with `.cfg` or `.bin`
+  — which is why the scanner sits in `repo.c` instead of three times in the callers.
+  **Since v1.22 the index is scanned while it is read**, through a 1 kB window plus a carry
+  of `REPO_MAX_NAME + 8` bytes for an entry cut in half at a chunk boundary. Nothing holds
+  the whole page any more: with 204 SternFA roms the HTML is about 25 kB, and up to v1.21 a
+  16 kB buffer (plus a 64 × 64-byte name array) sat next to the TLS context — so a folder
+  stopped at roughly 125 entries by the buffer and at 64 by the array. Now the heap holds the
+  window, the names themselves (a pool grown in 1 kB steps, ~3 kB for 204 short names) and
+  256 offsets. Beyond 256 matches the rest is ignored with a log warning; an answer that does
+  not fit the caller's buffer is cut off as valid JSON, also with a warning. The caller for
+  the rom folders (`/api/romfetchlist?dev=…`) therefore answers from 5 kB, enough for 256
+  names of the `nnn_xxxxx.bin` form.
   **`suffix = "/"` lists the sub-directories instead of the files**, which is how the device
   folders are enumerated. The one rule that makes both work from a single loop: slashes are
   allowed *inside* the suffix only. For `.cfg` that means none at all; for `/` it means the

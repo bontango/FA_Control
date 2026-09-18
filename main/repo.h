@@ -8,18 +8,20 @@
 /*
  * Dateiablage auf lisy.dev.
  *
- * Zwei Dinge werden von dort geholt: Firmware-Images (fw_update.c) und
- * Namensdateien (names.c). Beides liegt in einem Apache-Verzeichnis, beides
- * wird ueber dasselbe Muster gefunden -- Listing nach href="*.<endung>"
- * absuchen. Deshalb steht der Scanner hier einmal statt zweimal dort.
+ * Drei Dinge werden von dort geholt: Firmware-Images (fw_update.c),
+ * Namensdateien (names.c) und Spiel-ROMs (rom_boot.c). Alles liegt in
+ * Apache-Verzeichnissen, alles wird ueber dasselbe Muster gefunden -- Listing
+ * nach href="*.<endung>" absuchen. Deshalb steht der Scanner hier einmal.
  *
  * Nur im STA-Modus sinnvoll; im AP-Modus gibt es kein Internet. Die Handler in
  * web_server.c weisen das vorher ab.
  */
 
-/* 64 statt frueher 20: ein Geraeteordner mit Spiel-ROMs hat schnell mehr als 20
- * Eintraege. Das Namensfeld liegt deshalb im Heap, nicht auf dem Stack. */
-#define REPO_MAX_FILES 64
+/* 256 = eine Spielnummer je Eintrag: der SternFA-Ordner hat 204 ROMs. Das
+ * Listing wird beim Lesen ausgewertet, im Heap stehen nur ein 1-KB-Lesefenster,
+ * die Namen selbst (Pool, waechst mit) und 256 Offsets -- kein Komplettpuffer
+ * des HTML (bei 204 Eintraegen gut 25 KB) neben dem TLS-Kontext. */
+#define REPO_MAX_FILES 256
 #define REPO_MAX_NAME  64
 
 /* Verzeichnis-Listing holen und als {"files":["a.bin","b.bin"]} ablegen,
