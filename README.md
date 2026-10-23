@@ -27,6 +27,14 @@ the board asks for its game. Roms are kept per device like the naming files -
 That is the one exchange FA_Control takes part in without CONNECT - it only answers, it never
 starts it. See the technical reference, section 6.3.
 
+## User manuals
+
+**Read online:** <https://bontango.github.io/FA_Control/>
+
+- [User manual (English)](https://bontango.github.io/FA_Control/FA_Control_user_manual.html)
+- [Bedienungsanleitung (Deutsch)](https://bontango.github.io/FA_Control/FA_Control_Bedienungsanleitung.html)
+- [Manuel d'utilisation (Français)](https://bontango.github.io/FA_Control/FA_Control_manuel_utilisateur.html)
+
 | | |
 |---|---|
 | Board | ESP32-C3, USB-Serial/JTAG |
@@ -40,8 +48,8 @@ starts it. See the technical reference, section 6.3.
 
 | Document | For whom |
 |---|---|
-| [docs/USER_MANUAL.md](docs/USER_MANUAL.md) | Operating the device: DIP switches, LED patterns, Wi-Fi setup, connecting, the menus, firmware updates. No technical detail. |
-| [docs/BEDIENUNGSANLEITUNG.md](docs/BEDIENUNGSANLEITUNG.md) | The same manual in German. |
+| [User manual](https://bontango.github.io/FA_Control/FA_Control_user_manual.html) (`docs/FA_Control_user_manual.html`) | Operating the device: DIP switches, LED patterns, Wi-Fi setup, connecting, the menus, firmware updates. No technical detail. |
+| [Bedienungsanleitung](https://bontango.github.io/FA_Control/FA_Control_Bedienungsanleitung.html), [manuel d'utilisation](https://bontango.github.io/FA_Control/FA_Control_manuel_utilisateur.html) | The same manual in German and French. |
 | [docs/USB_FLASH.md](docs/USB_FLASH.md) | Full installation over USB with the browser-based installer: when you need it, what it keeps, what to do when it goes wrong. |
 | [docs/TECHNICAL_REFERENCE.md](docs/TECHNICAL_REFERENCE.md) | Firmware internals: GPIO map, power management, connection handshake, LISY command surface, REST API, OTA, build and release procedure. |
 

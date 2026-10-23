@@ -1,8 +1,11 @@
 # FA_Control — Technical Reference
 
 Firmware internals, hardware bindings, protocol details and build procedure.
-For operating the device see [USER_MANUAL.md](USER_MANUAL.md) (English) or
-[BEDIENUNGSANLEITUNG.md](BEDIENUNGSANLEITUNG.md) (German); for installing a complete image
+For operating the device see the user manual -
+[English](https://bontango.github.io/FA_Control/FA_Control_user_manual.html),
+[German](https://bontango.github.io/FA_Control/FA_Control_Bedienungsanleitung.html),
+[French](https://bontango.github.io/FA_Control/FA_Control_manuel_utilisateur.html)
+(sources `docs/FA_Control_*.html`); for installing a complete image
 over USB without ESP-IDF, [USB_FLASH.md](USB_FLASH.md).
 
 ---

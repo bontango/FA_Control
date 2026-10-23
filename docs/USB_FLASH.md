@@ -6,10 +6,10 @@ using the web installer at
 
 This is the exceptional route. The everyday way to get a new version onto the device is
 the over-the-air update described in
-[§ 9 of the User Manual](https://github.com/bontango/FA_Control/blob/main/docs/USER_MANUAL.md#9-updating-the-firmware),
+[§ 9 of the User Manual](https://bontango.github.io/FA_Control/FA_Control_user_manual.html#9-updating-the-firmware),
 which needs nothing but the device's own web page. Read on when that route is not enough.
 
-> The cross-references below point at GitHub rather than at neighbouring files: this page
+> The cross-references below are full web addresses rather than neighbouring files: this page
 > is also published on its own next to the installer, where the other documents do not
 > exist.
 
@@ -110,7 +110,7 @@ the log is still running.
 8. Open the device's page again. If it had Wi-Fi credentials before, it rejoins your
    network and is reachable at `http://fa-control.local`. If not, it opens its own
    `FA-Control` network — see
-   [§ 4 of the User Manual](https://github.com/bontango/FA_Control/blob/main/docs/USER_MANUAL.md#4-setting-up-wi-fi).
+   [§ 4 of the User Manual](https://bontango.github.io/FA_Control/FA_Control_user_manual.html#4-setting-up-wi-fi).
    Tiles **07 · NAMES** and **08 · GAME ROMS** should now be there.
 
 ---
