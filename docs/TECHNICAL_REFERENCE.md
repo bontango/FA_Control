@@ -983,7 +983,9 @@ A board revision v7.1 could derive nCE from the nCONFIG net through an inverter 
   data bit-reversed, so the `.jic` keeps the whole flash reversed. Checked over the full
   256 kB of GottFA1 5.30: rom data unreversed in the EPCS = what Quartus programs. That is
   why `rev` defaults to 1 for `addr=0` and to 0 in the rom area. Measured on v7
-  (24.10.2026): written in 3.8 s, read back equal.
+  (24.10.2026): written in 3.8 s, read back equal, and GottFA1_PLuS then booted
+  **without SD card** from the EPCS (`READFL`) and ran the game. A v7 board can thus be
+  set up completely over Wi-Fi: image plus game roms.
 - **Bit order:** a `.rbf` goes into the EPCS **bit-reversed** (bit 0 ↔ bit 7). This was
   measured on v7: unreversed, CONF_DONE stays low; reversed, the FPGA boots after about
   100 ms, and a read-back equals the reversed `.rbf`. `rev=1` is therefore the default.
