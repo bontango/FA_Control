@@ -845,14 +845,16 @@ static esp_err_t fpgadump_get_handler(httpd_req_t *req)
     return httpd_resp_send_chunk(req, NULL, 0);
 }
 
-/* Das Image kommt als Body und geht Page fuer Page ins EPCS; im RAM steht nie
- * mehr als ein Stueck davon. Eine .rbf muss bitgedreht ins EPCS (am v7 gemessen
- * 24.10.2026), deshalb ist rev=1 der Normalfall; rev=0 nur fuer Daten, die schon
- * in EPCS-Reihenfolge vorliegen (.rpd). */
+/* Die Daten kommen als Body und gehen Page fuer Page ins EPCS; im RAM steht nie
+ * mehr als ein Stueck davon. ?addr= waehlt den Bereich: 0 (Default) = Image,
+ * ab 0x080000 = Spiel-ROMs (fpga_prog.h). Die Bitdrehung folgt dem Bereich: eine
+ * .rbf muss gedreht ins EPCS, ROM-Daten ungedreht; ?rev= ueberstimmt das. */
 static esp_err_t fpgaup_post_handler(httpd_req_t *req)
 {
-    bool rev = get_param_int(req, "rev", 1) == 1;
-    esp_err_t err = fpga_prog_write_begin(req->content_len, rev);
+    char v[16];
+    uint32_t addr = get_param(req, "addr", v, sizeof(v)) ? strtoul(v, NULL, 0) : 0;
+    bool rev = get_param_int(req, "rev", addr == 0 ? 1 : 0) == 1;
+    esp_err_t err = fpga_prog_write_begin(addr, req->content_len, rev);
     if (err != ESP_OK) {
         return fpga_err(req, err);
     }

@@ -451,6 +451,18 @@ name=Airborne Avenger
     <p class="hint" style="margin:.8rem 0 0">IF THE UPLOAD BREAKS OFF, THE FPGA DOES NOT START UNTIL
       A COMPLETE IMAGE IS WRITTEN — JUST WRITE IT AGAIN.</p>
   </fieldset>
+  <fieldset><legend>WRITE GAME ROMS</legend>
+    <div class="row" style="margin-top:0">
+      <input type="file" id="fprfile" accept=".bin">
+      <span class="hint" style="margin:0">ADDRESS</span>
+      <input type="text" id="fpraddr" value="0x080000" style="flex:0 1 7rem">
+      <button class="btn" id="fprup">WRITE</button>
+    </div>
+    <div class="row"><span class="hint" id="fprstat" style="margin:0"></span></div>
+    <p class="hint" style="margin:.8rem 0 0">THE GAME ROMS FOR BOOTING WITHOUT SD CARD, AS A RAW
+      BINARY OF THE ROM AREA — FOR GOTTFA1_PLUS MADE BY MAKE_FLASH_HEX.PS1 -BIN, STARTING AT
+      0x080000. WRITTEN AS IS, NO BIT REVERSAL. THE FPGA IMAGE BELOW 0x080000 IS NEVER TOUCHED.</p>
+  </fieldset>
   <fieldset><legend>READ BACK</legend>
     <div class="row" style="margin-top:0">
       <span class="hint" style="margin:0">ADDRESS</span>
@@ -1078,15 +1090,13 @@ $("#fpreconf").onclick=function(){
     toast("RECONFIGURED")}).catch(function(){toast("NO CONNECTION")})
     .then(function(){fpInfo("")})};
 /* XHR statt fetch: nur so gibt es einen Fortschritt fuer den Upload. Nach dem
-   letzten Byte rechnet der ESP noch (letzte Page, Zuruecklesen, CONF_DONE). */
-$("#fpup").onclick=function(){
-  var f=$("#fpfile").files[0];
-  if(!f){toast("CHOOSE A FILE FIRST");return}
-  if(f.size>524288){toast("IMAGE TOO LARGE - AT MOST 512 KB");return}
+   letzten Byte rechnet der ESP noch (letzte Page, Zuruecklesen, CONF_DONE).
+   Gemeinsam fuer Image (addr 0, gedreht) und Spiel-ROMs (ab 0x080000, ungedreht). */
+function fpUpload(f,query,btn,st){
   if(!confirm(FP_WARN))return;
-  var btn=this,st=$("#fpstat");btn.disabled=true;
+  btn.disabled=true;
   var x=new XMLHttpRequest();
-  x.open("POST","/api/fpgaup?rev="+($("#fprev").checked?1:0));
+  x.open("POST","/api/fpgaup?"+query);
   x.upload.onprogress=function(e){
     if(e.lengthComputable)st.textContent="WRITING … "+Math.floor(e.loaded*100/e.total)+" %";
     if(e.loaded===e.total)st.textContent="VERIFYING …"};
@@ -1096,7 +1106,19 @@ $("#fpup").onclick=function(){
     fpInfo("")};
   x.onerror=function(){btn.disabled=false;st.textContent="ERROR: NO CONNECTION";fpInfo("")};
   st.textContent="WRITING …";
-  x.send(f)};
+  x.send(f)}
+$("#fpup").onclick=function(){
+  var f=$("#fpfile").files[0];
+  if(!f){toast("CHOOSE A FILE FIRST");return}
+  if(f.size>524288){toast("IMAGE TOO LARGE - AT MOST 512 KB");return}
+  fpUpload(f,"addr=0&rev="+($("#fprev").checked?1:0),this,$("#fpstat"))};
+$("#fprup").onclick=function(){
+  var f=$("#fprfile").files[0],a=$("#fpraddr").value.trim();
+  if(!f){toast("CHOOSE A FILE FIRST");return}
+  if(!/^(0x[0-9a-f]+|\d+)$/i.test(a)){toast("ADDRESS: DECIMAL OR 0x…");return}
+  var n=parseInt(a);
+  if(n<0x80000||n%0x10000){toast("ADDRESS: 0x080000 OR A LATER 64 KB BOUNDARY");return}
+  fpUpload(f,"addr="+encodeURIComponent(a)+"&rev=0",this,$("#fprstat"))};
 $("#fpdump").onclick=function(){
   var a=$("#fpaddr").value.trim(),l=$("#fplen").value.trim();
   if(!/^(0x[0-9a-f]+|\d+)$/i.test(a)||!/^(0x[0-9a-f]+|\d+)$/i.test(l)){

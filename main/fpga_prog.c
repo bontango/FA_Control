@@ -59,6 +59,7 @@ static char s_last[FPGA_MSG_LEN] = "";
 /* Offener Schreibvorgang */
 static bool s_busy;
 static bool s_rev;
+static uint32_t s_wr_base;          /* EPCS-Adresse des ersten Bytes */
 static uint32_t s_wr_size;
 static uint32_t s_wr_pos;           /* Bytes angenommen */
 static uint32_t s_erased_end;       /* geloescht bis hierhin (Sektorgrenze) */
@@ -548,7 +549,7 @@ static esp_err_t erase_sector(uint32_t addr)
  * Upload, statt vorher Sekunden lang den Empfang aufzuhalten. */
 static esp_err_t flush_page(void)
 {
-    uint32_t addr = s_wr_pos - s_page_fill;
+    uint32_t addr = s_wr_base + s_wr_pos - s_page_fill;
     esp_err_t err = ESP_OK;
     while (err == ESP_OK && addr + s_page_fill > s_erased_end) {
         err = erase_sector(s_erased_end);
@@ -570,7 +571,7 @@ static esp_err_t flush_page(void)
     return err;
 }
 
-esp_err_t fpga_prog_write_begin(uint32_t size, bool rev)
+esp_err_t fpga_prog_write_begin(uint32_t addr, uint32_t size, bool rev)
 {
     if (s_busy) {
         return ESP_ERR_INVALID_STATE;
@@ -579,9 +580,13 @@ esp_err_t fpga_prog_write_begin(uint32_t size, bool rev)
         set_last("Empty file");
         return ESP_ERR_INVALID_SIZE;
     }
-    if (size > FPGA_IMAGE_MAX) {
+    if (addr == 0 && size > FPGA_IMAGE_MAX) {
         set_last("Image too large - at most 512 kB, the game ROMs start at 0x080000");
         return ESP_ERR_INVALID_SIZE;
+    }
+    if (addr != 0 && (addr < FPGA_IMAGE_MAX || addr % EPCS_SECTOR != 0)) {
+        set_last("Address must be 0 (image) or a 64 kB boundary from 0x080000 (game ROMs)");
+        return ESP_ERR_INVALID_ARG;
     }
     esp_err_t err = session_open();
     if (err != ESP_OK) {
@@ -593,22 +598,23 @@ esp_err_t fpga_prog_write_begin(uint32_t size, bool rev)
         session_close();
         return err;
     }
-    if (size > s_size) {
-        set_last("Image larger than the EPCS");
+    if (size > s_size || addr > s_size - size) {
+        set_last("Does not fit into the EPCS");
         session_close();
         return ESP_ERR_INVALID_SIZE;
     }
     s_busy = true;
     s_last[0] = '\0';
     s_rev = rev;
+    s_wr_base = addr;
     s_wr_size = size;
     s_wr_pos = 0;
-    s_erased_end = 0;
+    s_erased_end = addr;
     s_page_fill = 0;
     mbedtls_sha256_init(&s_sha);
     mbedtls_sha256_starts(&s_sha, 0);
-    ESP_LOGI(TAG, "Schreibe %lu Byte ab 0x000000, Bitdrehung %s",
-             (unsigned long)size, rev ? "an" : "aus");
+    ESP_LOGI(TAG, "Schreibe %lu Byte ab 0x%06lX, Bitdrehung %s",
+             (unsigned long)size, (unsigned long)addr, rev ? "an" : "aus");
     return ESP_OK;
 }
 
@@ -648,7 +654,9 @@ void fpga_prog_write_abort(void)
     ESP_LOGW(TAG, "Schreiben abgebrochen bei %lu von %lu Byte",
              (unsigned long)s_wr_pos, (unsigned long)s_wr_size);
     if (s_last[0] == '\0') {   /* sonst steht dort schon der genauere Grund */
-        set_last("Upload aborted - the FPGA will not start until a complete image is written");
+        set_last(s_wr_base == 0
+                 ? "Upload aborted - the FPGA will not start until a complete image is written"
+                 : "Upload aborted - the game ROMs in this area are incomplete, write them again");
     }
 }
 
@@ -681,7 +689,7 @@ esp_err_t fpga_prog_write_end(void)
         for (uint32_t a = 0; err == ESP_OK && a < s_wr_size; a += READ_CHUNK) {
             uint32_t n = s_wr_size - a < READ_CHUNK ? s_wr_size - a : READ_CHUNK;
             memset(s_tx, 0, 4 + n);
-            put_addr(EPCS_READ, a);
+            put_addr(EPCS_READ, s_wr_base + a);
             err = xfer(4 + n);
             mbedtls_sha256_update(&sha, s_rx + 4, n);
         }
@@ -698,9 +706,18 @@ esp_err_t fpga_prog_write_end(void)
     esp_err_t cerr = session_close();
     if (err == ESP_OK) {
         err = cerr;
-        set_last(cerr == ESP_OK ? "Written and verified, FPGA started (CONF_DONE high)"
-                                : "Written and verified, but CONF_DONE stays low - "
-                                  "wrong file or bit order?");
+        if (s_wr_base == 0) {
+            set_last(cerr == ESP_OK ? "Written and verified, FPGA started (CONF_DONE high)"
+                                    : "Written and verified, but CONF_DONE stays low - "
+                                      "wrong file or bit order?");
+        } else {
+            /* Der ROM-Bereich hat mit dem Booten nichts zu tun; CONF_DONE low heisst
+             * hier nur, dass im Image-Bereich nichts Gueltiges steht. */
+            snprintf(s_last, sizeof(s_last), "%lu bytes written and verified at 0x%06lX, FPGA %s",
+                     (unsigned long)s_wr_size, (unsigned long)s_wr_base,
+                     cerr == ESP_OK ? "restarted" : "did not start (no valid image?)");
+            err = ESP_OK;
+        }
     }
     ESP_LOGI(TAG, "Schreiben beendet: %s", esp_err_to_name(err));
     return err;

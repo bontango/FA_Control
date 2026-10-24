@@ -18,18 +18,27 @@
  * fpga_jtag deshalb das Leer-Design as_release in den SRAM, das die AS-Leitungen
  * hochohmig laesst (~1,6 s).
  *
- * KEIN STAGING. Seit x.30 legen SternFA, BallyFA und WillFA7 ihre Spiel-ROMs ab
- * 0x080000 im EPCS ab -- genau dort, wo die Evaluierung Staging und Rollback
- * vorgesehen hatte. Geschrieben wird deshalb direkt ab 0, geloescht nur die
- * 64-kB-Sektoren, die das Image beruehrt, und ein Image ueber FPGA_IMAGE_MAX
- * wird abgewiesen. Alles ab 0x080000 bleibt unberuehrt.
+ * KEIN STAGING. Seit x.30 legen SternFA, BallyFA, WillFA7 und GottFA1 ihre
+ * Spiel-ROMs ab 0x080000 im EPCS ab -- genau dort, wo die Evaluierung Staging und
+ * Rollback vorgesehen hatte. Geschrieben wird deshalb direkt, geloescht nur die
+ * 64-kB-Sektoren, die der Upload beruehrt.
+ *
+ * ZWEI BEREICHE, sauber getrennt:
+ *   addr = 0              das Image (.rbf), hoechstens FPGA_IMAGE_MAX -- erreicht
+ *                         den ROM-Bereich nie
+ *   addr >= 0x080000      der ROM-Bereich (z. B. gottfa1_roms.bin aus
+ *                         make_flash_hex.ps1 -Bin), nur auf Sektorgrenzen, bis zum
+ *                         Ende des EPCS -- erreicht das Image nie
+ * Alles dazwischen wird abgewiesen.
  * Bricht ein Upload ab, bootet das FPGA nicht -- ein Ziegelstein ist es trotzdem
  * nicht, der ESP laeuft unabhaengig davon und brennt beim naechsten Versuch neu.
  *
  * BITREIHENFOLGE. Die Bytes einer .rbf muessen gedreht ins EPCS (Bit 0 <-> Bit 7),
  * gemessen am v7 am 24.10.2026: ungedreht bleibt CONF_DONE low, gedreht bootet
- * das FPGA nach ~100 ms. rev = true ist deshalb der Normalfall; false nur fuer
- * Daten, die schon in EPCS-Reihenfolge vorliegen (.rpd).
+ * das FPGA nach ~100 ms. ROM-Daten dagegen gehen UNGEDREHT hinein: in einer
+ * *_roms.jic stehen sie gedreht, der Bitstream ungedreht -- das .jic haelt das
+ * Flash also selbst gedreht (geprueft ueber die vollen 256 kB von GottFA1 5.30).
+ * Default deshalb: rev = true bei addr = 0, rev = false im ROM-Bereich.
  *
  * Jeder Zugriff auf das EPCS ersetzt das laufende Design und beendet damit das
  * Spiel samt einer FA-Control-Sitzung. fpga_prog_info() liest deshalb
@@ -75,7 +84,7 @@ esp_err_t fpga_prog_read(uint32_t addr, uint32_t len, fpga_sink_t sink, void *ct
  * nCONFIG los und wartet auf CONF_DONE (ESP_ERR_TIMEOUT).
  * abort gibt nach einem abgebrochenen Upload alles frei. Nach einem Fehler aus
  * chunk ist abort Pflicht, end und abort raeumen in jedem Fall auf. */
-esp_err_t fpga_prog_write_begin(uint32_t size, bool rev);
+esp_err_t fpga_prog_write_begin(uint32_t addr, uint32_t size, bool rev);
 esp_err_t fpga_prog_write_chunk(const uint8_t *data, size_t len);
 esp_err_t fpga_prog_write_end(void);
 void fpga_prog_write_abort(void);

@@ -963,16 +963,27 @@ pins as plain inputs:
 A board revision v7.1 could derive nCE from the nCONFIG net through an inverter instead
 (see the evaluation, § 12.3).
 
-- **No staging, no rollback.** Since x.30, SternFA, BallyFA and WillFA7 store their game
-  roms in the EPCS from **0x080000**. Images are therefore written straight from 0x000000,
-  only the 64 kB sectors the image touches are erased (each when first entered), and an
-  image larger than **512 kB** (`FPGA_IMAGE_MAX`) is refused. Nothing from 0x080000 upwards
-  is ever touched. An EP4CE6 image is about 360 kB.
+- **No staging, no rollback.** Since x.30, SternFA, BallyFA, WillFA7 and GottFA1 store
+  their game roms in the EPCS from **0x080000**. Data is therefore written straight to
+  its place, and only the 64 kB sectors the upload touches are erased, each when first
+  entered.
+- **Two areas, kept apart** (`?addr=`):
+  - **Image:** `addr=0` (the default), at most **512 kB** (`FPGA_IMAGE_MAX`). It never
+    reaches the rom area. An EP4CE6 image is about 360 kB, or 156 kB compressed.
+  - **Game roms:** `addr` ≥ 0x080000 on a 64 kB boundary, up to the end of the EPCS. It
+    never reaches the image. For GottFA1_PLuS the file is `gottfa1_roms.bin` from
+    `scripts\make_flash_hex.ps1 -Bin` (all 16 slots, 256 kB, 0x080000–0x0BFFFF).
+  - Anything in between is refused before the FPGA is touched.
 - **An interrupted upload** leaves an incomplete image: the FPGA will not start. It is not a
   brick, because the ESP runs independently and writes the image again on the next attempt.
 - **Verify:** SHA-256 over the bytes written, compared with a read-back of the same range.
 - **Identification:** `0xAB` (silicon ID, original EPCS16 = `0x14`) and `0x9F` (JEDEC, for
   clones such as W25Q16). For a clone, the capacity byte of the JEDEC ID gives the size.
+- **Rom data goes in unreversed.** A `*_roms.jic` holds the bitstream as is and the rom
+  data bit-reversed, so the `.jic` keeps the whole flash reversed. Checked over the full
+  256 kB of GottFA1 5.30: rom data unreversed in the EPCS = what Quartus programs. That is
+  why `rev` defaults to 1 for `addr=0` and to 0 in the rom area. Measured on v7
+  (24.10.2026): written in 3.8 s, read back equal.
 - **Bit order:** a `.rbf` goes into the EPCS **bit-reversed** (bit 0 ↔ bit 7). This was
   measured on v7: unreversed, CONF_DONE stays low; reversed, the FPGA boots after about
   100 ms, and a read-back equals the reversed `.rbf`. `rev=1` is therefore the default.
@@ -997,7 +1008,7 @@ A board revision v7.1 could derive nCE from the nCONFIG net through an inverter 
 | `GET /api/fpgainfo[?probe=1]` | `conf_done`, `busy`, `epcs_ab`, `epcs_jedec`, `size`, `max`, `last` (message) |
 | `POST /api/fpgareconf` | nCONFIG pulse only, the FPGA reloads its image |
 | `GET /api/fpgadump?addr=0x0&len=0x80000` | raw EPCS content as a download (no bit reversal) |
-| `POST /api/fpgaup[?rev=0]` | image in the body, written page by page while it arrives; bit-reversed unless `rev=0` |
+| `POST /api/fpgaup[?addr=0x080000][&rev=0\|1]` | data in the body, written page by page while it arrives. `addr` 0 (default) = image, bit-reversed. From 0x080000 on 64 kB boundaries = game roms, not reversed. `rev` overrides the default |
 | `GET /api/fpgadiag` | stage-0 diagnosis: JTAG IDCODE, AS line levels/edges idle, with nCONFIG held and after, pad read-back, 0xAB bit-banged |
 
 Errors come back as `400` with the English text that also appears in the UI.
