@@ -5,6 +5,8 @@
 #include "driver/spi_master.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "mbedtls/sha256.h"
@@ -384,6 +386,130 @@ esp_err_t fpga_prog_read(uint32_t addr, uint32_t len, fpga_sink_t sink, void *ct
     ESP_LOGI(TAG, "Lesen: %s, CONF_DONE %s", esp_err_to_name(err),
              cerr == ESP_OK ? "high" : "low");
     return err;
+}
+
+/* -- Diagnose (Stufe 0) --
+ * Ohne Oszilloskop: Pegel und Flanken der AS-Leitungen im Ruhezustand, dann
+ * nCONFIG halten und dasselbe noch einmal, zuletzt 0xAB langsam per Bit-Bang --
+ * so laesst sich ein Verdrahtungsfehler vom SPI-Treiber trennen. */
+
+#define DIAG_PINS 6
+static const int s_diag_pin[DIAG_PINS] = {
+    BOARD_PIN_AS_DCLK, BOARD_PIN_AS_ASDO, BOARD_PIN_NCONFIG,
+    BOARD_PIN_AS_DATA0, BOARD_PIN_AS_NCSO, BOARD_PIN_CONF_DONE,
+};
+static const char *s_diag_name[DIAG_PINS] = {
+    "DCLK", "ASDO", "nCONFIG", "DATA0", "nCSO", "CONF_DONE",
+};
+
+/* ~50 ms abtasten: Endpegel und Zahl der Wechsel je Leitung. */
+static int diag_sample(char *out, size_t len, const char *title)
+{
+    int last[DIAG_PINS], edges[DIAG_PINS] = { 0 };
+    for (int i = 0; i < DIAG_PINS; i++) {
+        last[i] = gpio_get_level(s_diag_pin[i]);
+    }
+    int64_t end = esp_timer_get_time() + 50000;
+    while (esp_timer_get_time() < end) {
+        for (int i = 0; i < DIAG_PINS; i++) {
+            int v = gpio_get_level(s_diag_pin[i]);
+            if (v != last[i]) {
+                edges[i]++;
+                last[i] = v;
+            }
+        }
+    }
+    int p = snprintf(out, len, "\"%s\":{", title);
+    for (int i = 0; i < DIAG_PINS && p < (int)len; i++) {
+        p += snprintf(out + p, len - p, "%s\"%s\":[%d,%d]", i ? "," : "",
+                      s_diag_name[i], last[i], edges[i]);
+    }
+    if (p < (int)len) {
+        p += snprintf(out + p, len - p, "}");
+    }
+    return p;
+}
+
+/* Ein Byte MSB-first, Modus 0, ~10 kHz. CS bleibt beim Aufrufer. */
+static uint8_t bb_xfer(uint8_t out)
+{
+    uint8_t in = 0;
+    for (int b = 7; b >= 0; b--) {
+        gpio_set_level(BOARD_PIN_AS_ASDO, (out >> b) & 1);
+        esp_rom_delay_us(50);
+        gpio_set_level(BOARD_PIN_AS_DCLK, 1);
+        esp_rom_delay_us(25);
+        in = (uint8_t)(in << 1 | gpio_get_level(BOARD_PIN_AS_DATA0));
+        esp_rom_delay_us(25);
+        gpio_set_level(BOARD_PIN_AS_DCLK, 0);
+    }
+    return in;
+}
+
+esp_err_t fpga_prog_diag(char *out, size_t len)
+{
+    if (s_busy) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    int p = snprintf(out, len, "{");
+    p += diag_sample(out + p, len - p, "idle");
+
+    fa_connect_release();
+    nconfig_hold();
+    vTaskDelay(pdMS_TO_TICKS(20));
+    /* INPUT_OUTPUT_OD: gpio_get_level liefert den echten Pegel am Pad. */
+    p += snprintf(out + p, len - p, ",");
+    p += diag_sample(out + p, len - p, "held");
+
+    /* Bit-Bang: DCLK/ASDO/nCSO als Ausgang, DATA0 Eingang. */
+    gpio_set_level(BOARD_PIN_AS_NCSO, 1);
+    gpio_set_level(BOARD_PIN_AS_DCLK, 0);
+    gpio_set_direction(BOARD_PIN_AS_NCSO, GPIO_MODE_INPUT_OUTPUT);
+    gpio_set_direction(BOARD_PIN_AS_DCLK, GPIO_MODE_INPUT_OUTPUT);
+    gpio_set_direction(BOARD_PIN_AS_ASDO, GPIO_MODE_INPUT_OUTPUT);
+    esp_rom_delay_us(100);
+    /* Kommt der ESP gegen die Leitung an? Pad-Pegel bei 1 und bei 0 -- bleibt
+     * er stehen, treibt das FPGA trotz nCONFIG low mit. */
+    gpio_set_level(BOARD_PIN_AS_DCLK, 1);
+    gpio_set_level(BOARD_PIN_AS_ASDO, 1);
+    esp_rom_delay_us(100);
+    int dclk_hi = gpio_get_level(BOARD_PIN_AS_DCLK);
+    int asdo_hi = gpio_get_level(BOARD_PIN_AS_ASDO);
+    gpio_set_level(BOARD_PIN_AS_DCLK, 0);
+    gpio_set_level(BOARD_PIN_AS_ASDO, 0);
+    esp_rom_delay_us(100);
+    int dclk_lo = gpio_get_level(BOARD_PIN_AS_DCLK);
+    int asdo_lo = gpio_get_level(BOARD_PIN_AS_ASDO);
+    p += snprintf(out + p, len - p,
+                  ",\"pads\":{\"dclk_hi\":%d,\"dclk_lo\":%d,\"asdo_hi\":%d,\"asdo_lo\":%d}",
+                  dclk_hi, dclk_lo, asdo_hi, asdo_lo);
+    int cs_hi = gpio_get_level(BOARD_PIN_AS_NCSO);
+    gpio_set_level(BOARD_PIN_AS_NCSO, 0);
+    esp_rom_delay_us(100);
+    int cs_lo = gpio_get_level(BOARD_PIN_AS_NCSO);
+    uint8_t r[5];
+    r[0] = bb_xfer(EPCS_RES_ID);
+    for (int i = 1; i < 5; i++) {
+        r[i] = bb_xfer(0);
+    }
+    gpio_set_level(BOARD_PIN_AS_NCSO, 1);
+    esp_rom_delay_us(100);
+    gpio_set_level(BOARD_PIN_AS_NCSO, 0);
+    uint8_t s0 = bb_xfer(EPCS_RDSR), s1 = bb_xfer(0);
+    gpio_set_level(BOARD_PIN_AS_NCSO, 1);
+    p += snprintf(out + p, len - p,
+                  ",\"bitbang\":{\"ncs_pad_hi\":%d,\"ncs_pad_lo\":%d,"
+                  "\"ab\":[%d,%d,%d,%d,%d],\"rdsr\":[%d,%d]}",
+                  cs_hi, cs_lo, r[0], r[1], r[2], r[3], r[4], s0, s1);
+    pins_hiz();
+
+    nconfig_release();
+    vTaskDelay(pdMS_TO_TICKS(20));
+    p += snprintf(out + p, len - p, ",");
+    p += diag_sample(out + p, len - p, "released");
+    snprintf(out + p, len - p, "}");
+    ESP_LOGI(TAG, "Diagnose: %s", out);
+    return ESP_OK;
 }
 
 /* -- Schreiben -- */

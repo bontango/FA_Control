@@ -75,3 +75,8 @@ esp_err_t fpga_prog_write_begin(uint32_t size, bool rev);
 esp_err_t fpga_prog_write_chunk(const uint8_t *data, size_t len);
 esp_err_t fpga_prog_write_end(void);
 void fpga_prog_write_abort(void);
+
+/* Stufe-0-Diagnose als JSON nach out (~600 Byte): Pegel/Flanken der AS-Leitungen
+ * im Ruhezustand, bei gehaltenem nCONFIG und danach, dazu 0xAB/0x05 per Bit-Bang.
+ * Setzt das FPGA zurueck. */
+esp_err_t fpga_prog_diag(char *out, size_t len);

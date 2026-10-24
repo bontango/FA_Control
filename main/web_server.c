@@ -791,6 +791,17 @@ static esp_err_t fpgareconf_post_handler(httpd_req_t *req)
     return fpga_err(req, fpga_prog_reconfig());
 }
 
+static esp_err_t fpgadiag_get_handler(httpd_req_t *req)
+{
+    char buf[768];
+    esp_err_t err = fpga_prog_diag(buf, sizeof(buf));
+    if (err != ESP_OK) {
+        return fpga_err(req, err);
+    }
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, buf);
+}
+
 typedef struct {
     httpd_req_t *req;
     bool started;
@@ -918,6 +929,7 @@ esp_err_t web_server_start(void)
         { .uri = "/api/fpgainfo",   .method = HTTP_GET,  .handler = fpgainfo_get_handler },
         { .uri = "/api/fpgareconf", .method = HTTP_POST, .handler = fpgareconf_post_handler },
         { .uri = "/api/fpgadump",   .method = HTTP_GET,  .handler = fpgadump_get_handler },
+        { .uri = "/api/fpgadiag",   .method = HTTP_GET,  .handler = fpgadiag_get_handler },
         { .uri = "/api/fpgaup",     .method = HTTP_POST, .handler = fpgaup_post_handler },
 #endif
         { .uri = "/logo.png",    .method = HTTP_GET,  .handler = logo_get_handler },
