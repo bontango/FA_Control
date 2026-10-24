@@ -977,6 +977,11 @@ A board revision v7.1 could derive nCE from the nCONFIG net through an inverter 
   measured on v7: unreversed, CONF_DONE stays low; reversed, the FPGA boots after about
   100 ms, and a read-back equals the reversed `.rbf`. `rev=1` is therefore the default.
   `rev=0` is only for data that is already in EPCS order (`.rpd`).
+- **Compressed `.rbf` works.** When Quartus writes the `.rbf` itself
+  (`GENERATE_RBF_FILE ON`), it comes out compressed: GottFA1_PLuS on v7 is 156 kB instead
+  of 368 kB. The Cyclone IV decompresses it during AS configuration. It is written
+  exactly like an uncompressed one (bit-reversed, `rev=1`) and was booted on v7. The
+  uncompressed file from `quartus_cpf -c SYS1.sof SYS1.rbf` works just as well.
 - **Measured on v7 (24.10.2026):** the EPCS is an ISSI IS25LP016 (0xAB → 0x14, JEDEC
   0x9D6015). Writing and verifying 360 kB takes about 10 s, including the blank design.
 - **Every EPCS access replaces the running design.** The game restarts and a FA-Control session
