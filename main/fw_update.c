@@ -11,10 +11,19 @@
 #include "freertos/task.h"
 
 #include "repo.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "fw_update";
 
+/* Je Board-Variante ein eigener Ordner: ein Image der einen Variante auf der
+ * anderen haette falsche Pins (v7 auf dem Sockel: DCLK/nCONFIG statt DIP-Bank;
+ * Sockel-Image auf v7: Tiefschlaf ueber GPIO0 = DCLK). Ein Geraet sieht nur
+ * seinen eigenen Ordner, alte Geraete kennen den neuen gar nicht. */
+#if CONFIG_FA_BOARD_PIGGYBACK_V7
+#define FW_BASE_URL   "https://lisy.dev/swrep/misc/FA_Control/bin_v7/"
+#else
 #define FW_BASE_URL   "https://lisy.dev/swrep/misc/FA_Control/bin/"
+#endif
 #define FW_MAX_NAME   64
 
 static volatile fw_state_t s_state = FW_IDLE;

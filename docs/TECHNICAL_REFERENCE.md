@@ -45,6 +45,9 @@ Two design decisions shape everything else:
 
 ### 2.1 GPIO map
 
+This is the socket variant (AtariFA and others). The EP4CE6 dev board v7 has a map of its
+own, see § 14.2.
+
 Single source of truth: [`main/board_pins.h`](../main/board_pins.h). Configured by
 [`main/board.c`](../main/board.c).
 
@@ -558,6 +561,7 @@ Query parameters only — there is no JSON parsing anywhere. Responses are built
 | `GET /api/status` | Wi-Fi mode (`ap`/`sta`), IP, firmware version |
 | `GET /api/fwlist` | `.bin` files on lisy.dev as JSON |
 | `POST /api/fwupdate?file=FA_Control_v1.13.bin` | start OTA update |
+| `/api/fpga…` | only on the EP4CE6 dev board v7, see § 14.4 |
 | `GET /api/fwstatus` | progress (`idle`/`running`/`ok`/`error`, percent, message) |
 | `GET /api/names` | the active naming file, raw `text/plain`, chunked |
 | `GET /api/namelist` | files on the partition + active one + bytes used |
@@ -803,6 +807,9 @@ of every over-the-air update.
 
 **Increment `version.txt` before a release.**
 
+`-Board v7` does the same for the EP4CE6 dev board v7 and publishes into its own folder,
+see § 14.5.
+
 ### 12.2 Full package — `build_and_deploy_full.ps1`
 
 ```powershell
@@ -874,3 +881,102 @@ the seven-segment mock-up of § 8.1, the second deliberately dark island: it is 
 showing tool output, and it should look like one.
 
 The user-facing side of all this is [USB_FLASH.md](USB_FLASH.md).
+
+## 14. Board variant v7 — programming the FPGA (since v1.24)
+
+On the **EP4CE6 dev board v7** the ESP32-C3 Supermini is not plugged into a mainboard
+socket but sits on the FPGA piggyback itself (connector X7). Besides the LISY link it reaches
+the configuration flash (EPCS16), nCONFIG, CONF_DONE and JTAG of the FPGA, and it writes new
+FPGA images over Wi-Fi. Hardware background and the reasoning behind the pin map:
+`N:\Projekte\misc\USB_BLASTER_DIY\ESP32-C3_SUPERMINI_PIGGYBACK.md`.
+
+### 14.1 A build-time variant
+
+The variant is a Kconfig choice (`main/Kconfig.projbuild`): `FA_BOARD_ATARIFA` (default,
+everything above) or `FA_BOARD_PIGGYBACK_V7`. It cannot be detected at run time: v7 moves
+the console from UART0 to USB-Serial-JTAG, because GPIO20/21 carry CONF_DONE and TDO, and
+that is an sdkconfig setting. `sdkconfig.defaults.v7` adds the variant on top of
+`sdkconfig.defaults`. It builds into a directory of its own with its own sdkconfig, so the two
+variants never overwrite each other:
+
+```powershell
+idf.py -B C:\Users\bonta\esp\build\fa_v7 -D SDKCONFIG=C:\Users\bonta\esp\build\fa_v7\sdkconfig `
+       -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.v7" build
+```
+
+What changes in v7:
+
+| | Socket variant | v7 |
+|---|---|---|
+| LISY TX / RX, control request | GPIO7 / 6, 10 | unchanged; FPGA balls R3 / T2, N3 |
+| DIP bank, deep sleep | DIP1 = on/off | **none**, always awake (`board_dip_read()` returns `BOARD_DIP_ACTIVE`) |
+| Push button GPIO9 | input | not read: it is TDI |
+| Blue LED GPIO8 | blinks | blinks; it is TMS as well, harmless without TCK edges |
+| Console | UART0 + USB-Serial-JTAG | USB-Serial-JTAG only |
+| OTA folder | `…/FA_Control/bin/` | `…/FA_Control/bin_v7/` |
+| Menu 09 FPGA | – | shown (`"fpga":1` in `/api/config`) |
+
+### 14.2 GPIO map v7
+
+| Signal | GPIO | FPGA / EPCS | Notes |
+|---|---|---|---|
+| DCLK | 0 | H1 / EPCS-6 | SPI clock, driven only while programming |
+| ASDO | 1 | C1 / EPCS-5 | SPI MOSI |
+| nCONFIG | 2 | H5 | open drain; R6 10 k pull-up, C14 100 nF. Strapping pin, R6 keeps it high |
+| DATA0 | 3 | H2 / EPCS-2 | SPI MISO |
+| nCSO | 4 | D2 / EPCS-1 | SPI chip select |
+| TCK | 5 | H3 | stage 2; R2 pull-down |
+| TMS / LED | 8 | J5 | stage 2; R3 pull-up |
+| TDI / BOOT | 9 | H4 | stage 2; R4 pull-up |
+| CONF_DONE | 20 | H14 | input, R7 pull-up |
+| TDO | 21 | J4 | stage 2; through R11 100 Ω (ROM boot log on GPIO21) |
+
+All programming lines are inputs **without** internal pull while idle. The resistors on the
+piggyback set the levels. Without a module plugged in, the piggyback runs as before.
+
+### 14.3 Writing the EPCS (`main/fpga_prog.c`)
+
+Active serial, directly: the ESP pulls nCONFIG low, so the FPGA enters reset and tristates
+its AS pins. The ESP then drives the EPCS as a plain SPI master (GPSPI2, 10 MHz, mode 0) and
+releases nCONFIG. The FPGA boots from the new image, and CONF_DONE must go high within 2 s.
+The SPI bus exists only for the duration of an operation, and the pins go back to
+high impedance afterwards.
+
+- **No staging, no rollback.** Since x.30, SternFA, BallyFA and WillFA7 store their game
+  roms in the EPCS from **0x080000**. Images are therefore written straight from 0x000000,
+  only the 64 kB sectors the image touches are erased (each when first entered), and an
+  image larger than **512 kB** (`FPGA_IMAGE_MAX`) is refused. Nothing from 0x080000 upwards
+  is ever touched. An EP4CE6 image is about 360 kB.
+- **An interrupted upload** leaves an incomplete image: the FPGA will not start. It is not a
+  brick, because the ESP runs independently and writes the image again on the next attempt.
+- **Verify:** SHA-256 over the bytes written, compared with a read-back of the same range.
+- **Identification:** `0xAB` (silicon ID, original EPCS16 = `0x14`) and `0x9F` (JEDEC, for
+  clones such as W25Q16). For a clone, the capacity byte of the JEDEC ID gives the size.
+- **Bit order:** `rev=1` reverses every byte (bit 0 ↔ bit 7) before writing. Whether a
+  `.rbf` needs this is settled on the device (stage 0: dump an EPCS programmed by Quartus and
+  compare it with the `.rbf`). Until then it is a checkbox in the UI.
+- **Every EPCS access holds the FPGA in reset.** The game restarts and a FA-Control session
+  ends (`fa_connect_release()` runs first). That is why `GET /api/fpgainfo` only reads
+  CONF_DONE plus whatever was learnt last, and the EPCS ID needs an explicit `?probe=1`.
+  After the restart the board asks for its game rom as usual. `rom_boot` listens all the
+  time, not only after the ESP's own power-on.
+
+### 14.4 API (v7 only)
+
+| Endpoint | Function |
+|---|---|
+| `GET /api/fpgainfo[?probe=1]` | `conf_done`, `busy`, `epcs_ab`, `epcs_jedec`, `size`, `max`, `last` (message) |
+| `POST /api/fpgareconf` | nCONFIG pulse only, the FPGA reloads its image |
+| `GET /api/fpgadump?addr=0x0&len=0x80000` | raw EPCS content as a download (no bit reversal) |
+| `POST /api/fpgaup?rev=0\|1` | image in the body, written page by page while it arrives |
+
+Errors come back as `400` with the English text that also appears in the UI.
+`max_uri_handlers` is 40 (34 entries in v7, 30 otherwise).
+
+### 14.5 Release
+
+`.\build_and_deploy.ps1 -Board v7` builds into `C:\Users\bonta\esp\build\fa_v7`, names the
+file `FA_Control_v7_v<version>.bin` and uploads it to `SFTP_PATH_V7` (`…/FA_Control/bin_v7/`).
+`fw_update.c` takes its folder from the variant. A device never sees the other variant's
+images, and devices with older firmware do not know the new folder at all. There is no
+browser installer package for v7 yet. The first installation is `idf.py … flash` over USB.

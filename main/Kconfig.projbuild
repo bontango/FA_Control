@@ -1,0 +1,26 @@
+menu "FA_Control"
+
+    choice FA_BOARD
+        prompt "Board-Variante"
+        default FA_BOARD_ATARIFA
+        help
+            Auf welchem Traeger das ESP32-C3 Supermini steckt. Die Variante
+            bestimmt die GPIO-Belegung (board_pins.h) und den OTA-Ordner auf
+            lisy.dev -- ein Image der einen Variante darf nie auf die andere.
+
+        config FA_BOARD_ATARIFA
+            bool "Sockel auf dem FA-Mainboard (AtariFA u. a.)"
+            help
+                Supermini im ESP32-Sockel des Mainboards: LISY-UART, Uebernahme-
+                Anforderung, 4er-DIP-Bank, Tiefschlaf ueber DIP1.
+
+        config FA_BOARD_PIGGYBACK_V7
+            bool "EP4CE6 dev board v7 (Piggyback)"
+            help
+                Supermini fest auf der FPGA-Piggyback v7. Zusaetzlich zu FA-Control
+                programmiert es das EPCS des FPGA (AS, nCONFIG). Keine DIP-Bank,
+                kein Tiefschlaf, Konsole ueber USB-Serial-JTAG (GPIO20/21 sind
+                CONF_DONE und TDO). Bauen mit sdkconfig.defaults.v7.
+    endchoice
+
+endmenu

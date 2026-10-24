@@ -12,6 +12,9 @@
 #include "esp_app_desc.h"
 #include "fa_connect.h"
 #include "fw_update.h"
+#if CONFIG_FA_BOARD_PIGGYBACK_V7
+#include "fpga_prog.h"
+#endif
 #include "lisy.h"
 #include "names.h"
 #include "repo.h"
@@ -19,6 +22,13 @@
 #include "wifi_mgr.h"
 
 static const char *TAG = "web";
+
+/* Kachel 09 FPGA nur auf dem EP4CE6 dev board v7 (Kconfig.projbuild). */
+#if CONFIG_FA_BOARD_PIGGYBACK_V7
+#define HAS_FPGA 1
+#else
+#define HAS_FPGA 0
+#endif
 
 extern const uint8_t index_html_gz_start[] asm("_binary_index_html_gz_start");
 extern const uint8_t index_html_gz_end[]   asm("_binary_index_html_gz_end");
@@ -148,14 +158,15 @@ static esp_err_t config_get_handler(httpd_req_t *req)
              "\"displays\":%u,\"dw\":[%s],\"wd\":%d,\"wdlast\":%d,\"pulse\":%u,"
              "\"conn\":%d,\"connmsg\":\"%s\","
              "\"hw\":\"%s\",\"fwver\":\"%s\",\"apiver\":\"%s\",\"game\":\"%s\","
-             "\"namesfs\":%d,\"names\":\"%s\",\"gameid\":\"%s\",\"romfs\":%d}",
+             "\"namesfs\":%d,\"names\":\"%s\",\"gameid\":\"%s\",\"romfs\":%d,\"fpga\":%d}",
              ci->lamps, ci->coils, ci->switches, ci->sounds,
              ci->displays, dw,
              lisy_watchdog_enabled() ? 1 : 0, lisy_watchdog_last_result(),
              g_cfg.coil_pulse_ms,
              (int)ci->state, fa_connect_state_str(),
              ci->hw, ci->fw_ver, ci->api_ver, ci->game,
-             names_ready() ? 1 : 0, names_active(), gameid, rom_boot_ready() ? 1 : 0);
+             names_ready() ? 1 : 0, names_active(), gameid, rom_boot_ready() ? 1 : 0,
+             HAS_FPGA);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
 }
@@ -734,6 +745,127 @@ static esp_err_t romfetch_post_handler(httpd_req_t *req)
     return rom_err(req, rom_fetch(path));
 }
 
+#if CONFIG_FA_BOARD_PIGGYBACK_V7
+
+/* ---- API: FPGA programmieren (fpga_prog.c, nur Board v7) ------------------ */
+
+/* Jeder Zugriff auf das EPCS haelt das FPGA im Reset: das Spiel startet danach
+ * neu, eine FA-Control-Sitzung endet. Die Oberflaeche sagt das vorher. */
+
+static esp_err_t fpga_err(httpd_req_t *req, esp_err_t err)
+{
+    if (err == ESP_OK) {
+        return send_ok(req);
+    }
+    if (err == ESP_ERR_INVALID_STATE) {
+        return send_err(req, "FPGA programming in progress");
+    }
+    fpga_info_t fi;
+    fpga_prog_info(&fi);
+    return send_err(req, fi.last[0] ? fi.last : esp_err_to_name(err));
+}
+
+/* ?probe=1 liest vorher die Kennung des EPCS (startet das FPGA neu). */
+static esp_err_t fpgainfo_get_handler(httpd_req_t *req)
+{
+    if (get_param_int(req, "probe", 0) == 1) {
+        esp_err_t err = fpga_prog_probe();
+        if (err == ESP_ERR_INVALID_STATE) {
+            return fpga_err(req, err);
+        }
+    }
+    fpga_info_t fi;
+    fpga_prog_info(&fi);
+    char buf[256];
+    snprintf(buf, sizeof(buf),
+             "{\"conf_done\":%d,\"busy\":%d,\"epcs_ab\":%d,\"epcs_jedec\":%lu,"
+             "\"size\":%lu,\"max\":%d,\"last\":\"%s\"}",
+             fi.conf_done ? 1 : 0, fi.busy ? 1 : 0, fi.id_ab,
+             (unsigned long)fi.jedec, (unsigned long)fi.size, FPGA_IMAGE_MAX, fi.last);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, buf);
+}
+
+static esp_err_t fpgareconf_post_handler(httpd_req_t *req)
+{
+    return fpga_err(req, fpga_prog_reconfig());
+}
+
+typedef struct {
+    httpd_req_t *req;
+    bool started;
+} dump_ctx_t;
+
+static esp_err_t dump_sink(void *ctx, const uint8_t *data, size_t len)
+{
+    dump_ctx_t *d = ctx;
+    d->started = true;
+    return httpd_resp_send_chunk(d->req, (const char *)data, len);
+}
+
+/* EPCS roh als Datei -- fuer Stufe 0: Bitreihenfolge und Offset gegen die .rbf,
+ * und vor/nach einem Upload ab 0x80000, ob die Spiel-ROMs unberuehrt bleiben.
+ * addr/len dezimal oder 0x... */
+static esp_err_t fpgadump_get_handler(httpd_req_t *req)
+{
+    char v[16];
+    uint32_t addr = get_param(req, "addr", v, sizeof(v)) ? strtoul(v, NULL, 0) : 0;
+    uint32_t len = get_param(req, "len", v, sizeof(v)) ? strtoul(v, NULL, 0) : FPGA_IMAGE_MAX;
+    if (len == 0 || len > 0x1000000) {
+        return send_err(req, "Invalid length");
+    }
+    char disp[64];
+    snprintf(disp, sizeof(disp), "attachment; filename=\"epcs_%06lX.bin\"",
+             (unsigned long)addr);
+    httpd_resp_set_type(req, "application/octet-stream");
+    httpd_resp_set_hdr(req, "Content-Disposition", disp);
+
+    dump_ctx_t d = { .req = req };
+    esp_err_t err = fpga_prog_read(addr, len, dump_sink, &d);
+    if (err != ESP_OK && !d.started) {
+        httpd_resp_set_hdr(req, "Content-Disposition", "inline");
+        return fpga_err(req, err);
+    }
+    if (err != ESP_OK) {
+        /* Mitten im Strom laesst sich kein Status mehr setzen: Verbindung
+         * abbrechen, damit der Browser keine verkuerzte Datei fuer ganz haelt. */
+        return ESP_FAIL;
+    }
+    return httpd_resp_send_chunk(req, NULL, 0);
+}
+
+/* Das Image kommt als Body und geht Page fuer Page ins EPCS; im RAM steht nie
+ * mehr als ein Stueck davon. ?rev=1 dreht jedes Byte (Bitreihenfolge .rbf). */
+static esp_err_t fpgaup_post_handler(httpd_req_t *req)
+{
+    bool rev = get_param_int(req, "rev", 0) == 1;
+    esp_err_t err = fpga_prog_write_begin(req->content_len, rev);
+    if (err != ESP_OK) {
+        return fpga_err(req, err);
+    }
+    char chunk[1024];
+    size_t left = req->content_len;
+    while (left > 0) {
+        int n = httpd_req_recv(req, chunk, left < sizeof(chunk) ? left : sizeof(chunk));
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) {
+            continue;
+        }
+        if (n <= 0) {
+            fpga_prog_write_abort();
+            return fpga_err(req, ESP_FAIL);
+        }
+        err = fpga_prog_write_chunk((const uint8_t *)chunk, n);
+        if (err != ESP_OK) {
+            fpga_prog_write_abort();
+            return fpga_err(req, err);
+        }
+        left -= n;
+    }
+    return fpga_err(req, fpga_prog_write_end());
+}
+
+#endif /* CONFIG_FA_BOARD_PIGGYBACK_V7 */
+
 /* ---- Start --------------------------------------------------------------- */
 
 esp_err_t web_server_start(void)
@@ -743,7 +875,7 @@ esp_err_t web_server_start(void)
     /* Muss >= Anzahl der Eintraege in uris[] sein, sonst werden die letzten
      * stillschweigend nicht registriert und laufen in den Captive-Portal-
      * Fallback. Beim Hinzufuegen eines Endpunkts hier mitzaehlen. */
-    cfg.max_uri_handlers = 32;
+    cfg.max_uri_handlers = 40;
     cfg.lru_purge_enable = true;
     /* TLS-Client (fwlist via mbedTLS) laeuft im httpd-Task -> mehr Stack noetig */
     cfg.stack_size = 10240;
@@ -782,6 +914,12 @@ esp_err_t web_server_start(void)
         { .uri = "/api/romdel",  .method = HTTP_POST, .handler = romdel_post_handler },
         { .uri = "/api/romfetchlist", .method = HTTP_GET,  .handler = romfetchlist_get_handler },
         { .uri = "/api/romfetch",     .method = HTTP_POST, .handler = romfetch_post_handler },
+#if CONFIG_FA_BOARD_PIGGYBACK_V7
+        { .uri = "/api/fpgainfo",   .method = HTTP_GET,  .handler = fpgainfo_get_handler },
+        { .uri = "/api/fpgareconf", .method = HTTP_POST, .handler = fpgareconf_post_handler },
+        { .uri = "/api/fpgadump",   .method = HTTP_GET,  .handler = fpgadump_get_handler },
+        { .uri = "/api/fpgaup",     .method = HTTP_POST, .handler = fpgaup_post_handler },
+#endif
         { .uri = "/logo.png",    .method = HTTP_GET,  .handler = logo_get_handler },
         /* Der Wildcard-Eintrag faengt alles Uebrige und muss zuletzt stehen. */
         { .uri = "/*",           .method = HTTP_GET,  .handler = root_get_handler },

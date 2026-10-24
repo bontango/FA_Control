@@ -1,5 +1,7 @@
 #pragma once
 
+#include "sdkconfig.h"
+
 /*
  * Zentrale GPIO-Zuordnung (ESP32-C3) — "single source of truth".
  *
@@ -35,6 +37,61 @@
 #define BOARD_PIN_CTRL_REQ    10
 /* Aktiv-Pegel des Ausgangs (0 = active-low, passend zum Pull-Up der Gegenseite). */
 #define BOARD_CTRL_ACTIVE_LEVEL 0
+
+#if CONFIG_FA_BOARD_PIGGYBACK_V7
+
+/* ========================================================================== *
+ * EP4CE6 dev board v7 (Piggyback). Das Supermini steckt auf X7 und erreicht
+ * ausser LISY/CTRL_REQ auch EPCS, nCONFIG, CONF_DONE und JTAG des FPGA.
+ * Massgeblich: N:\Projekte\misc\USB_BLASTER_DIY\ESP32-C3_SUPERMINI_PIGGYBACK.md
+ * §4, verdrahtet laut Netzliste EP4CE6_dev_board_v7_0.NET:
+ *     GPIO7  -> R3 (LISY TX, vorher CH340-TxD)   GPIO6  <- T2 (LISY RX)
+ *     GPIO10 -> N3 (CTRL_REQ)
+ *
+ * Regeln hinter der Belegung:
+ *  - Was das FPGA beim Einschalten treibt (DCLK, nCSO, ASDO, DATA0, CONF_DONE,
+ *    TDO), liegt NICHT auf den Strapping-Pins 2/8/9.
+ *  - Auf 2/8/9 nur ESP-Ausgaenge in Netze mit externem Pull-Up: nCONFIG (R6),
+ *    TMS (R3), TDI (R4). nCONFIG nie auf 8 (LED) oder 9 (BOOT-Taster).
+ *  - Alle Programmierleitungen sind im Ruhezustand Eingaenge ohne internen
+ *    Pull. Getrieben wird nur, solange fpga_prog arbeitet.
+ *  - GPIO20/21 sind die UART0-Pins; die Konsole laeuft hier ueber USB-Serial-
+ *    JTAG (sdkconfig.defaults.v7). Das Boot-Log des ROM auf GPIO21 trifft TDO
+ *    hochohmig an, R11 (100 Ohm) begrenzt den Sonderfall.
+ * ========================================================================== */
+
+/* --- EPCS16 per Active Serial (ESP = SPI-Master, nur bei nCONFIG low) ----- */
+#define BOARD_PIN_AS_DCLK      0   /* SPI-SCLK -> H1 / EPCS-6 */
+#define BOARD_PIN_AS_ASDO      1   /* SPI-MOSI -> C1 / EPCS-5 */
+#define BOARD_PIN_AS_DATA0     3   /* SPI-MISO <- H2 / EPCS-2 */
+#define BOARD_PIN_AS_NCSO      4   /* SPI-CS   -> D2 / EPCS-1 */
+
+/* --- Konfiguration ------------------------------------------------------- */
+/* nCONFIG: open-drain, R6 10k nach 3,3 V, C14 100 nF nach GND (1 ms). Low haelt
+ * das FPGA im Reset und schaltet dessen AS-Pins hochohmig. Strapping-Pin -- R6
+ * haelt ihn beim Reset des ESP high. */
+#define BOARD_PIN_NCONFIG      2
+/* CONF_DONE: Eingang, open-drain vom FPGA, R7 10k nach 3,3 V. */
+#define BOARD_PIN_CONF_DONE   20
+
+/* --- JTAG (Stufe 2, bis dahin nur hochohmig) ----------------------------- */
+#define BOARD_PIN_JTAG_TCK     5   /* R2 zieht nach GND */
+#define BOARD_PIN_JTAG_TMS     8   /* = LED, R3 nach 3,3 V */
+#define BOARD_PIN_JTAG_TDI     9   /* = BOOT-Taster, R4 nach 3,3 V */
+#define BOARD_PIN_JTAG_TDO    21   /* ueber R11 100 Ohm */
+
+/* --- Blaue Onboard-LED --------------------------------------------------- */
+/* Doppelt belegt mit TMS. Ohne TCK-Flanke passiert im TAP nichts, das Blinken
+ * ist also harmlos, solange keine JTAG-Operation laeuft. */
+#define BOARD_PIN_LED          8
+#define BOARD_LED_ACTIVE_LEVEL 0
+
+/* Keine DIP-Bank: board_dip_read() meldet fest "wach, LED an". Den Wert
+ * braucht power_mgr, der Rest der Firmware kennt die Bank nicht. */
+#define BOARD_DIP_ACTIVE      (1 << 0)
+#define BOARD_DIP_NO_LED      (1 << 1)
+
+#else /* Sockel auf dem FA-Mainboard */
 
 /* --- I2C (nur reserviert, kein Treiber-Init) ----------------------------- */
 /* Open-Drain mit EXTERNEN Pull-Ups. SCL liegt auf Strapping-Pin GPIO8 —
@@ -90,3 +147,5 @@
 /* --- Reserve ------------------------------------------------------------- */
 /* GPIO2 (Strapping) bewusst freigehalten fuer kuenftige Erweiterungen. */
 #define BOARD_PIN_RESERVED    2
+
+#endif /* CONFIG_FA_BOARD_PIGGYBACK_V7 */

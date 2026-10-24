@@ -12,7 +12,17 @@
 #   - .env Datei im Projektverzeichnis (siehe .env.example)
 #
 # Verwendung:
-#   .\build_and_deploy.ps1
+#   .\build_and_deploy.ps1              # Sockel-Variante (AtariFA u. a.) -> bin/
+#   .\build_and_deploy.ps1 -Board v7    # EP4CE6 dev board v7          -> bin_v7/
+#
+# Die Varianten bauen in getrennten Build-Ordnern mit eigener sdkconfig und landen
+# in getrennten Serverordnern: das OTA eines Geraets sieht nur seinen eigenen
+# (fw_update.c), ein Image der falschen Variante haette falsche Pins.
+
+param(
+    [ValidateSet("atarifa", "v7")]
+    [string]$Board = "atarifa"
+)
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -54,7 +64,8 @@ Get-Content ".env" | Where-Object { $_ -match '^\s*[^#\s].+=.' } | ForEach-Objec
     $envVars[$parts[0].Trim()] = $parts[1].Trim()
 }
 
-foreach ($var in @("SFTP_HOST", "SFTP_USER", "SFTP_PATH")) {
+$pathVar = if ($Board -eq "v7") { "SFTP_PATH_V7" } else { "SFTP_PATH" }
+foreach ($var in @("SFTP_HOST", "SFTP_USER", $pathVar)) {
     if (-not $envVars.ContainsKey($var) -or [string]::IsNullOrEmpty($envVars[$var])) {
         Err "Variable '$var' fehlt oder ist leer in .env"
         exit 1
@@ -63,7 +74,7 @@ foreach ($var in @("SFTP_HOST", "SFTP_USER", "SFTP_PATH")) {
 
 $SFTP_HOST = $envVars["SFTP_HOST"]
 $SFTP_USER = $envVars["SFTP_USER"]
-$SFTP_PATH = $envVars["SFTP_PATH"]
+$SFTP_PATH = $envVars[$pathVar]
 if ($envVars["LOCAL_RELEASES_DIR"]) {
     $LOCAL_RELEASES_DIR = $envVars["LOCAL_RELEASES_DIR"]
 } else {
@@ -74,6 +85,16 @@ if ($envVars["BUILD_DIR"]) {
 } else {
     $BUILD_DIR = "C:\Users\bonta\esp\build\fa"
 }
+# v7: eigener Build-Ordner samt sdkconfig, sonst ueberschreiben sich die Varianten.
+$IdfArgs = @()
+$FilePrefix = "FA_Control"
+if ($Board -eq "v7") {
+    $BUILD_DIR  = "${BUILD_DIR}_v7"
+    $IdfArgs    = @("-D", "SDKCONFIG=$BUILD_DIR\sdkconfig",
+                    "-D", "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.v7")
+    $FilePrefix = "FA_Control_v7"
+}
+Info "Board-Variante: $Board (Build-Ordner $BUILD_DIR)"
 
 # -- SFTP-Passwort abfragen ---------------------------------------------------
 $securePass = Read-Host "SFTP-Passwort fuer ${SFTP_USER}@${SFTP_HOST} (Enter = nur lokal kopieren)" -AsSecureString
@@ -138,13 +159,13 @@ Info "Version erkannt: $VERSION"
 New-Item -ItemType Directory -Force -Path $LOCAL_RELEASES_DIR | Out-Null
 
 # -- Build + Copy + SFTP ------------------------------------------------------
-$outfile  = "$LOCAL_RELEASES_DIR\FA_Control_v${VERSION}.bin"
-$sftpName = "FA_Control_v${VERSION}.bin"
+$outfile  = "$LOCAL_RELEASES_DIR\${FilePrefix}_v${VERSION}.bin"
+$sftpName = "${FilePrefix}_v${VERSION}.bin"
 
 try {
-    StepMsg "Build FA_Control v$VERSION"
-    Info "Starte idf.py -B $BUILD_DIR build ..."
-    idf.py -B $BUILD_DIR build
+    StepMsg "Build FA_Control v$VERSION ($Board)"
+    Info "Starte idf.py -B $BUILD_DIR $IdfArgs build ..."
+    idf.py -B $BUILD_DIR @IdfArgs build
     if ($LASTEXITCODE -ne 0) { throw "idf.py build fehlgeschlagen (exit $LASTEXITCODE)" }
 
     Info "Kopiere $BUILD_DIR\FA_Control.bin -> $outfile"

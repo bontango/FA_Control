@@ -1,0 +1,13 @@
+# Zusatz fuer die Board-Variante "EP4CE6 dev board v7" (Piggyback).
+# Wird NACH sdkconfig.defaults gelesen und mit eigener sdkconfig gebaut, damit
+# sich die beiden Varianten nicht gegenseitig ueberschreiben:
+#
+#   idf.py -B C:\Users\bonta\esp\build\fa_v7 -D SDKCONFIG=C:\Users\bonta\esp\build\fa_v7\sdkconfig
+#          -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.v7" build
+
+CONFIG_FA_BOARD_PIGGYBACK_V7=y
+
+# GPIO20/21 (UART0) sind hier CONF_DONE und TDO -- die Konsole zieht ganz auf
+# USB-Serial-JTAG um. Das Boot-Log des ROM auf GPIO21 bleibt, siehe board_pins.h.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y

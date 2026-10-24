@@ -3,6 +3,9 @@
 
 #include "app_config.h"
 #include "board.h"
+#if CONFIG_FA_BOARD_PIGGYBACK_V7
+#include "fpga_prog.h"
+#endif
 #include "lisy.h"
 #include "names.h"
 #include "power_mgr.h"
@@ -41,6 +44,10 @@ void app_main(void)
      * dauert. Ohne Partition antwortet der Dienst sofort "kein ROM". */
     rom_boot_init();
     rom_boot_start();
+
+#if CONFIG_FA_BOARD_PIGGYBACK_V7
+    fpga_prog_init();
+#endif
 
     /* Beim Start wird bewusst nicht verbunden: solange niemand in der Oberflaeche
      * "CONNECT" drueckt, gehoert der Flipper sich selbst. Watchdog und Pulszeit

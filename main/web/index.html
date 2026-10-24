@@ -260,6 +260,7 @@ legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;f
     <button class="tile" data-s="wifi"><span class="no">06</span><span class="nm">WI-FI</span><span class="ds">NETWORK · FIRMWARE</span></button>
     <button class="tile" data-s="names" id="t_names"><span class="no">07</span><span class="nm">NAMES</span><span class="ds">NAMING FILES · UPLOAD · LOAD</span></button>
     <button class="tile" data-s="roms" id="t_roms"><span class="no">08</span><span class="nm">GAME ROMS</span><span class="ds">BOOT WITHOUT SD CARD · UPLOAD · LOAD</span></button>
+    <button class="tile" data-s="fpga" id="t_fpga" style="display:none"><span class="no">09</span><span class="nm">FPGA</span><span class="ds">EPCS · UPLOAD · RECONFIGURE</span></button>
   </div>
 </div>
 
@@ -420,6 +421,47 @@ name=Airborne Avenger
   </fieldset>
 </section>
 
+<!-- Nur auf dem EP4CE6 dev board v7 ("fpga":1 in /api/config). Jeder Zugriff
+     auf das EPCS haelt das FPGA im Reset -- das sagt die Seite vorher. -->
+<section id="fpga"><div class="shead"><button class="back">◀ MENU</button><h2>FPGA</h2></div>
+  <p class="hint">THIS DEVICE SITS ON THE FPGA BOARD AND WRITES ITS CONFIGURATION FLASH (EPCS)
+    DIRECTLY. EVERY ACTION BELOW HOLDS THE FPGA IN RESET: THE GAME RESTARTS AND A RUNNING
+    CONNECTION ENDS. ONLY THE FIRST 512 KB ARE WRITTEN — THE GAME ROMS STORED FROM 0x080000
+    STAY UNTOUCHED. WORKS WITHOUT CONNECT.</p>
+  <fieldset><legend>STATUS</legend>
+    <div class="val" style="border-color:var(--cu)">
+      <span>CONF_DONE</span><b id="fpcd">–</b>
+    </div>
+    <div class="val" style="border-color:var(--cu)">
+      <span>EPCS</span><b id="fpid">–</b>
+    </div>
+    <p class="hint" id="fplast" style="margin:.8rem 0 0">–</p>
+    <div class="row">
+      <button class="btn" id="fpprobe">IDENTIFY EPCS</button>
+      <button class="btn" id="fpreconf">RECONFIGURE</button>
+    </div>
+  </fieldset>
+  <fieldset><legend>WRITE A NEW IMAGE</legend>
+    <div class="row" style="margin-top:0">
+      <input type="file" id="fpfile" accept=".rbf,.rpd,.bin">
+      <label class="hint" style="margin:0"><input type="checkbox" id="fprev"> REVERSE BITS</label>
+      <button class="btn" id="fpup">WRITE</button>
+    </div>
+    <div class="row"><span class="hint" id="fpstat" style="margin:0"></span></div>
+    <p class="hint" style="margin:.8rem 0 0">IF THE UPLOAD BREAKS OFF, THE FPGA DOES NOT START UNTIL
+      A COMPLETE IMAGE IS WRITTEN — JUST WRITE IT AGAIN.</p>
+  </fieldset>
+  <fieldset><legend>READ BACK</legend>
+    <div class="row" style="margin-top:0">
+      <span class="hint" style="margin:0">ADDRESS</span>
+      <input type="text" id="fpaddr" value="0x000000" style="flex:0 1 7rem">
+      <span class="hint" style="margin:0">LENGTH</span>
+      <input type="text" id="fplen" value="0x80000" style="flex:0 1 7rem">
+      <button class="btn" id="fpdump">DOWNLOAD</button>
+    </div>
+  </fieldset>
+</section>
+
 </main>
 <div id="toast"></div>
 <script>
@@ -455,6 +497,7 @@ function show(id){
   if(id==="switches"){poll();pollTimer=setInterval(poll,1000)}
   if(id==="names")nmList();
   if(id==="roms")romList();
+  if(id==="fpga")fpInfo("");
   if(!id)homeTimer=setInterval(refreshConn,2000);
 }
 document.querySelectorAll(".tile").forEach(function(t){
@@ -592,11 +635,14 @@ function applyConn(){
   /* Steuerungskacheln 01-05 nur bei gewaehrter Kontrolle. WI-FI, NAMES und
      GAME ROMS bleiben offen: Netz einrichten und Dateien verwalten geht auch ohne. */
   document.querySelectorAll(".tile").forEach(function(t){
-    t.disabled=(t.dataset.s!=="wifi"&&t.dataset.s!=="names"&&t.dataset.s!=="roms")&&!live});
+    t.disabled=(t.dataset.s!=="wifi"&&t.dataset.s!=="names"&&t.dataset.s!=="roms"&&
+                t.dataset.s!=="fpga")&&!live});
   /* Ohne Partition (Geraet nur per OTA aktualisiert) gibt es nichts zu verwalten. */
   $("#t_names").style.display=cfg.namesfs?"":"none";
   /* ROMs haben eine eigene Partition -- sie kommt wie die der Namen nur per USB. */
   $("#t_roms").style.display=cfg.romfs?"":"none";
+  /* FPGA programmieren kann nur die Variante fuer das EP4CE6 dev board v7. */
+  $("#t_fpga").style.display=cfg.fpga?"":"none";
 }
 
 /* Auf der Startseite mitlaufen lassen: die Gegenstelle kann die Kontrolle
@@ -1005,6 +1051,59 @@ function init(){
       $("#nmfetch").disabled=true;
       $("#romfetch").disabled=true;
       $("#nmstat").textContent="DOWNLOAD NOT AVAILABLE IN AP MODE — UPLOAD STILL WORKS"}})}
+/* ---- FPGA (nur Board v7) ----
+   Die Kennung des EPCS gibt es nur nach einem Zugriff, und der setzt das FPGA
+   zurueck -- deshalb liest das Oeffnen der Seite nur CONF_DONE und das zuletzt
+   Ermittelte, IDENTIFY EPCS holt die Kennung ausdruecklich. */
+var FP_WARN="The FPGA will be held in reset - the game restarts and a running connection ends. Continue?";
+function hex(n,w){return "0x"+("000000"+n.toString(16).toUpperCase()).slice(-w)}
+function fpShow(j){
+  $("#fpcd").textContent=j.conf_done?"HIGH — FPGA RUNNING":"LOW — NOT CONFIGURED";
+  var id="–";
+  if(j.size)id=(j.epcs_ab===0x14?"EPCS16":"ID "+hex(j.epcs_ab,2))+" · JEDEC "+hex(j.epcs_jedec,6)+
+    " · "+(j.size/1024)+" KB";
+  else if(j.epcs_ab>=0)id="NOT FOUND (ID "+hex(j.epcs_ab,2)+", JEDEC "+hex(j.epcs_jedec,6)+")";
+  $("#fpid").textContent=id;
+  $("#fplast").textContent=j.last?j.last.toUpperCase():"–"}
+function fpInfo(q){
+  fetch("/api/fpgainfo"+q).then(function(r){
+    if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+    return r.json()}).then(fpShow)
+    .catch(function(e){toast("ERROR: "+e.message.toUpperCase())})}
+$("#fpprobe").onclick=function(){if(confirm(FP_WARN))fpInfo("?probe=1")};
+$("#fpreconf").onclick=function(){
+  if(!confirm(FP_WARN))return;
+  fetch("/api/fpgareconf",{method:"POST"}).then(function(r){
+    if(!r.ok)return r.text().then(function(t){toast("ERROR: "+t.toUpperCase())});
+    toast("RECONFIGURED")}).catch(function(){toast("NO CONNECTION")})
+    .then(function(){fpInfo("")})};
+/* XHR statt fetch: nur so gibt es einen Fortschritt fuer den Upload. Nach dem
+   letzten Byte rechnet der ESP noch (letzte Page, Zuruecklesen, CONF_DONE). */
+$("#fpup").onclick=function(){
+  var f=$("#fpfile").files[0];
+  if(!f){toast("CHOOSE A FILE FIRST");return}
+  if(f.size>524288){toast("IMAGE TOO LARGE - AT MOST 512 KB");return}
+  if(!confirm(FP_WARN))return;
+  var btn=this,st=$("#fpstat");btn.disabled=true;
+  var x=new XMLHttpRequest();
+  x.open("POST","/api/fpgaup?rev="+($("#fprev").checked?1:0));
+  x.upload.onprogress=function(e){
+    if(e.lengthComputable)st.textContent="WRITING … "+Math.floor(e.loaded*100/e.total)+" %";
+    if(e.loaded===e.total)st.textContent="VERIFYING …"};
+  x.onload=function(){
+    btn.disabled=false;
+    st.textContent=x.status===200?"DONE":"ERROR: "+x.responseText.toUpperCase();
+    fpInfo("")};
+  x.onerror=function(){btn.disabled=false;st.textContent="ERROR: NO CONNECTION";fpInfo("")};
+  st.textContent="WRITING …";
+  x.send(f)};
+$("#fpdump").onclick=function(){
+  var a=$("#fpaddr").value.trim(),l=$("#fplen").value.trim();
+  if(!/^(0x[0-9a-f]+|\d+)$/i.test(a)||!/^(0x[0-9a-f]+|\d+)$/i.test(l)){
+    toast("ADDRESS AND LENGTH: DECIMAL OR 0x…");return}
+  if(!confirm(FP_WARN))return;
+  location.href="/api/fpgadump?addr="+encodeURIComponent(a)+"&len="+encodeURIComponent(l)};
+
 init();
 show(null);
 </script>

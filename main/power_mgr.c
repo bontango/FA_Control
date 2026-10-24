@@ -1,5 +1,6 @@
 #include "power_mgr.h"
 
+#include <stdlib.h>
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
@@ -99,9 +100,15 @@ static void enter_deep_sleep(void)
     }
     gpio_deep_sleep_hold_en();
 
+#if CONFIG_FA_BOARD_PIGGYBACK_V7
+    /* Unerreichbar: ohne DIP-Bank meldet board_dip_read() immer "wach". GPIO0
+     * ist hier DCLK und darf niemanden wecken. */
+    abort();
+#else
     /* DIP1 ON = GND = low. Nur GPIO0..5 koennen den C3 wecken; GPIO0 ist dabei. */
     ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(1ULL << BOARD_PIN_DIP1,
                                                       ESP_GPIO_WAKEUP_GPIO_LOW));
+#endif
 
     ESP_LOGI(TAG, "DIP1 = OFF -- Tiefschlaf. Aufwecken: DIP1 auf ON stellen.");
     esp_deep_sleep_start();
