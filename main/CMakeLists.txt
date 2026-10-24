@@ -2,7 +2,7 @@ set(srcs "repo.c" "board.c" "main.c" "app_config.c" "lisy.c" "fa_connect.c" "pow
 
 # FPGA-Programmierung gibt es nur auf dem EP4CE6 dev board v7 (Kconfig.projbuild).
 if(CONFIG_FA_BOARD_PIGGYBACK_V7)
-    list(APPEND srcs "fpga_prog.c")
+    list(APPEND srcs "fpga_prog.c" "fpga_jtag.c")
 endif()
 
 idf_component_register(
@@ -32,3 +32,9 @@ target_add_binary_data(${COMPONENT_LIB} ${WEB_GZ} BINARY DEPENDS web_gz_target)
 # ein PNG ist bereits komprimiert, base64 wuerde es um ein Drittel aufblaehen
 # und liesse sich vom gzip der Seite nicht wieder einholen.
 target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/web/logo.png" BINARY)
+
+# Board v7: JTAG-Datenstrom des Leer-Designs as_release, zlib-gepackt (~4 kB).
+# Erzeugt von fpga/as_release/make_jtag_blob.py, entpackt beim Schieben (fpga_jtag.c).
+if(CONFIG_FA_BOARD_PIGGYBACK_V7)
+    target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/blob/as_release.jtag.z" BINARY)
+endif()

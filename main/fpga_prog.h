@@ -9,10 +9,14 @@
  * FPGA-Programmierung auf dem EP4CE6 dev board v7 -- nur in dieser Variante
  * gebaut (CONFIG_FA_BOARD_PIGGYBACK_V7).
  *
- * WEG. Active Serial direkt: der ESP zieht nCONFIG auf low, das FPGA geht in den
- * Reset und schaltet seine AS-Pins hochohmig, der ESP beschreibt das EPCS als
- * gewoehnlicher SPI-Master und laesst nCONFIG wieder los. Das FPGA bootet dann
- * aus dem neuen Image; CONF_DONE muss innerhalb von FPGA_CONF_DONE_MS high werden.
+ * WEG. Der ESP beschreibt das EPCS als gewoehnlicher SPI-Master (Active Serial)
+ * und startet das FPGA danach per nCONFIG-Puls aus dem neuen Image; CONF_DONE
+ * muss innerhalb von FPGA_CONF_DONE_MS high werden.
+ *
+ * ZUGANG. nCONFIG low allein reicht auf v7 nicht: das FPGA haelt DCLK auch im
+ * Reset aktiv low (nCE liegt fest auf GND). Vor jedem EPCS-Zugriff laedt
+ * fpga_jtag deshalb das Leer-Design as_release in den SRAM, das die AS-Leitungen
+ * hochohmig laesst (~1,6 s).
  *
  * KEIN STAGING. Seit x.30 legen SternFA, BallyFA und WillFA7 ihre Spiel-ROMs ab
  * 0x080000 im EPCS ab -- genau dort, wo die Evaluierung Staging und Rollback
@@ -22,13 +26,13 @@
  * Bricht ein Upload ab, bootet das FPGA nicht -- ein Ziegelstein ist es trotzdem
  * nicht, der ESP laeuft unabhaengig davon und brennt beim naechsten Versuch neu.
  *
- * BITREIHENFOLGE. Ob die Bytes einer .rbf fuer das EPCS gedreht werden muessen,
- * klaert Stufe 0 am Geraet (Dump eines mit Quartus gebrannten EPCS gegen die
- * .rbf). Bis dahin ist es ein Parameter: rev = true dreht jedes Byte (Bit 0 <->
- * Bit 7), bevor es geschrieben wird.
+ * BITREIHENFOLGE. Die Bytes einer .rbf muessen gedreht ins EPCS (Bit 0 <-> Bit 7),
+ * gemessen am v7 am 24.10.2026: ungedreht bleibt CONF_DONE low, gedreht bootet
+ * das FPGA nach ~100 ms. rev = true ist deshalb der Normalfall; false nur fuer
+ * Daten, die schon in EPCS-Reihenfolge vorliegen (.rpd).
  *
- * Jeder Zugriff auf das EPCS haelt das FPGA im Reset und beendet damit das
- * laufende Spiel samt einer FA-Control-Sitzung. fpga_prog_info() liest deshalb
+ * Jeder Zugriff auf das EPCS ersetzt das laufende Design und beendet damit das
+ * Spiel samt einer FA-Control-Sitzung. fpga_prog_info() liest deshalb
  * nur CONF_DONE und das zuletzt Ermittelte; die Kennung holt fpga_prog_probe().
  *
  * Alle Funktionen laufen im Task des Aufrufers (httpd) und blockieren.

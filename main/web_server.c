@@ -846,10 +846,12 @@ static esp_err_t fpgadump_get_handler(httpd_req_t *req)
 }
 
 /* Das Image kommt als Body und geht Page fuer Page ins EPCS; im RAM steht nie
- * mehr als ein Stueck davon. ?rev=1 dreht jedes Byte (Bitreihenfolge .rbf). */
+ * mehr als ein Stueck davon. Eine .rbf muss bitgedreht ins EPCS (am v7 gemessen
+ * 24.10.2026), deshalb ist rev=1 der Normalfall; rev=0 nur fuer Daten, die schon
+ * in EPCS-Reihenfolge vorliegen (.rpd). */
 static esp_err_t fpgaup_post_handler(httpd_req_t *req)
 {
-    bool rev = get_param_int(req, "rev", 0) == 1;
+    bool rev = get_param_int(req, "rev", 1) == 1;
     esp_err_t err = fpga_prog_write_begin(req->content_len, rev);
     if (err != ESP_OK) {
         return fpga_err(req, err);

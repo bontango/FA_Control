@@ -936,11 +936,32 @@ piggyback set the levels. Without a module plugged in, the piggyback runs as bef
 
 ### 14.3 Writing the EPCS (`main/fpga_prog.c`)
 
-Active serial, directly: the ESP pulls nCONFIG low, so the FPGA enters reset and tristates
-its AS pins. The ESP then drives the EPCS as a plain SPI master (GPSPI2, 10 MHz, mode 0) and
-releases nCONFIG. The FPGA boots from the new image, and CONF_DONE must go high within 2 s.
-The SPI bus exists only for the duration of an operation, and the pins go back to
-high impedance afterwards.
+The ESP drives the EPCS as a plain SPI master (GPSPI2, 10 MHz, mode 0) and then pulses
+nCONFIG. The FPGA boots from the new image, and CONF_DONE must go high within 2 s. The SPI bus
+exists only for the duration of an operation, and the pins go back to high impedance
+afterwards.
+
+**Getting the bus first.** The original plan was to hold nCONFIG low, so that the FPGA
+would tristate its AS pins. It does not work on v7: the Cyclone IV keeps **DCLK driven low**
+while in reset, because nCE is tied to GND (measured 24.10.2026 with `GET /api/fpgadiag`).
+Before every EPCS access, `main/fpga_jtag.c` therefore loads a blank design into the FPGA's
+SRAM over JTAG (bit-banged on GPIO5/8/9/21, about 1.6 s). That design leaves the four AS
+pins as plain inputs:
+
+- The design is `fpga/as_release`, with the dual-purpose pins set to `USE AS REGULAR IO`.
+- What gets shifted is not the `.rbf` but the exact data stream from the SVF that Quartus
+  generates for the `.sof`: 22 bytes 0xFF, the `.rbf` with 15 header bytes changed, and
+  4 bytes 0x00. `fpga/as_release/make_jtag_blob.py` checks the SVF command sequence against
+  the one built into `fpga_jtag.c` and stores the stream zlib-packed in
+  `main/blob/as_release.jtag.z` (4.4 kB instead of 368 kB). It is unpacked with the ROM's
+  `tinfl` while shifting.
+- The sequence from the SVF: IDCODE check (0x020F10DD), PROGRAM 0x002, 10000 TCK, data,
+  CHECK_STATUS 0x004 (bit 226 of 603 = CONF_DONE), STARTUP 0x003, 40960 + 512 TCK, BYPASS.
+- GPIO8 is TMS and the LED at the same time. `board_led_lock()` keeps the blink task off it
+  while the TAP is in use.
+
+A board revision v7.1 could derive nCE from the nCONFIG net through an inverter instead
+(see the evaluation, § 12.3).
 
 - **No staging, no rollback.** Since x.30, SternFA, BallyFA and WillFA7 store their game
   roms in the EPCS from **0x080000**. Images are therefore written straight from 0x000000,
@@ -952,10 +973,13 @@ high impedance afterwards.
 - **Verify:** SHA-256 over the bytes written, compared with a read-back of the same range.
 - **Identification:** `0xAB` (silicon ID, original EPCS16 = `0x14`) and `0x9F` (JEDEC, for
   clones such as W25Q16). For a clone, the capacity byte of the JEDEC ID gives the size.
-- **Bit order:** `rev=1` reverses every byte (bit 0 ↔ bit 7) before writing. Whether a
-  `.rbf` needs this is settled on the device (stage 0: dump an EPCS programmed by Quartus and
-  compare it with the `.rbf`). Until then it is a checkbox in the UI.
-- **Every EPCS access holds the FPGA in reset.** The game restarts and a FA-Control session
+- **Bit order:** a `.rbf` goes into the EPCS **bit-reversed** (bit 0 ↔ bit 7). This was
+  measured on v7: unreversed, CONF_DONE stays low; reversed, the FPGA boots after about
+  100 ms, and a read-back equals the reversed `.rbf`. `rev=1` is therefore the default.
+  `rev=0` is only for data that is already in EPCS order (`.rpd`).
+- **Measured on v7 (24.10.2026):** the EPCS is an ISSI IS25LP016 (0xAB → 0x14, JEDEC
+  0x9D6015). Writing and verifying 360 kB takes about 10 s, including the blank design.
+- **Every EPCS access replaces the running design.** The game restarts and a FA-Control session
   ends (`fa_connect_release()` runs first). That is why `GET /api/fpgainfo` only reads
   CONF_DONE plus whatever was learnt last, and the EPCS ID needs an explicit `?probe=1`.
   After the restart the board asks for its game rom as usual. `rom_boot` listens all the
@@ -968,10 +992,11 @@ high impedance afterwards.
 | `GET /api/fpgainfo[?probe=1]` | `conf_done`, `busy`, `epcs_ab`, `epcs_jedec`, `size`, `max`, `last` (message) |
 | `POST /api/fpgareconf` | nCONFIG pulse only, the FPGA reloads its image |
 | `GET /api/fpgadump?addr=0x0&len=0x80000` | raw EPCS content as a download (no bit reversal) |
-| `POST /api/fpgaup?rev=0\|1` | image in the body, written page by page while it arrives |
+| `POST /api/fpgaup[?rev=0]` | image in the body, written page by page while it arrives; bit-reversed unless `rev=0` |
+| `GET /api/fpgadiag` | stage-0 diagnosis: JTAG IDCODE, AS line levels/edges idle, with nCONFIG held and after, pad read-back, 0xAB bit-banged |
 
 Errors come back as `400` with the English text that also appears in the UI.
-`max_uri_handlers` is 40 (34 entries in v7, 30 otherwise).
+`max_uri_handlers` is 40 (35 entries in v7, 30 otherwise).
 
 ### 14.5 Release
 

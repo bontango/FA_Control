@@ -13,6 +13,7 @@
 
 #include "board.h"
 #include "fa_connect.h"
+#include "fpga_jtag.h"
 
 static const char *TAG = "fpga";
 
@@ -279,17 +280,33 @@ static esp_err_t read_id(void)
     return s_size ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
-/* ---- Sitzung: nCONFIG halten + Bus ---------------------------------------- */
+/* ---- Sitzung: Leer-Design laden + Bus --------------------------------------
+ *
+ * nCONFIG low allein reicht auf v7 nicht: das FPGA haelt DCLK auch im Reset
+ * aktiv low (nCE liegt fest auf GND, Befund 24.10.2026). Stattdessen kommt per
+ * JTAG das Leer-Design as_release in den SRAM, das die AS-Leitungen hochohmig
+ * laesst. Danach gehoert das EPCS dem ESP; am Ende startet ein nCONFIG-Puls das
+ * FPGA aus dem EPCS neu. Laeuft das Leer-Design nicht an, bleibt der Bus zu --
+ * gegen ein treibendes DCLK zu arbeiten, haette keinen Sinn. */
 
 static esp_err_t session_open(void)
 {
-    /* Erst die Kontrolle sauber zurueckgeben -- das FPGA geht gleich in den
-     * Reset, mit ihm die Totmannschaltung der Gegenseite. */
+    /* Erst die Kontrolle sauber zurueckgeben -- das laufende Design verschwindet
+     * gleich, mit ihm die Totmannschaltung der Gegenseite. */
     fa_connect_release();
-    nconfig_hold();
-    esp_err_t err = bus_open();
+    esp_err_t err = fpga_jtag_load_release();
     if (err != ESP_OK) {
+        set_last(err == ESP_ERR_INVALID_RESPONSE ? "No FPGA on JTAG (wrong or no IDCODE)" :
+                 err == ESP_ERR_INVALID_STATE    ? "Release design did not start (CHECK_STATUS)" :
+                                                   "Release design could not be loaded");
+        /* Das FPGA aus dem EPCS neu starten, damit es nicht halb geladen stehen bleibt. */
+        nconfig_hold();
         nconfig_release();
+        return err;
+    }
+    err = bus_open();
+    if (err != ESP_OK) {
+        set_last("SPI bus not available");
         ESP_LOGE(TAG, "SPI-Bus: %s", esp_err_to_name(err));
     }
     return err;
@@ -298,6 +315,7 @@ static esp_err_t session_open(void)
 static esp_err_t session_close(void)
 {
     bus_close();
+    nconfig_hold();
     nconfig_release();
     return wait_conf_done();
 }
@@ -341,7 +359,6 @@ esp_err_t fpga_prog_probe(void)
     }
     esp_err_t err = session_open();
     if (err != ESP_OK) {
-        set_last("SPI bus not available");
         return err;
     }
     esp_err_t id_err = read_id();
@@ -361,7 +378,6 @@ esp_err_t fpga_prog_read(uint32_t addr, uint32_t len, fpga_sink_t sink, void *ct
     }
     esp_err_t err = session_open();
     if (err != ESP_OK) {
-        set_last("SPI bus not available");
         return err;
     }
     err = read_id();
@@ -451,7 +467,9 @@ esp_err_t fpga_prog_diag(char *out, size_t len)
     if (s_busy) {
         return ESP_ERR_INVALID_STATE;
     }
-    int p = snprintf(out, len, "{");
+    uint32_t idcode = 0;
+    fpga_jtag_idcode(&idcode);
+    int p = snprintf(out, len, "{\"idcode\":\"0x%08lX\",", (unsigned long)idcode);
     p += diag_sample(out + p, len - p, "idle");
 
     fa_connect_release();
@@ -567,7 +585,6 @@ esp_err_t fpga_prog_write_begin(uint32_t size, bool rev)
     }
     esp_err_t err = session_open();
     if (err != ESP_OK) {
-        set_last("SPI bus not available");
         return err;
     }
     err = read_id();

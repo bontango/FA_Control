@@ -2,6 +2,8 @@
 
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "board";
 
@@ -110,9 +112,27 @@ void board_led_init(void)
     board_led_set(false);
 }
 
+static volatile bool s_led_locked;
+
 void board_led_set(bool on)
 {
+    if (s_led_locked) {
+        return;
+    }
     gpio_set_level(BOARD_PIN_LED, on ? BOARD_LED_ACTIVE_LEVEL : !BOARD_LED_ACTIVE_LEVEL);
+}
+
+void board_led_lock(bool locked)
+{
+    if (locked) {
+        s_led_locked = true;
+        /* Der Blink-Task (Prio 4) kann gerade mitten in board_led_set() stehen,
+         * vom httpd-Task (Prio 5) verdraengt. Kurz warten, dann ist er durch. */
+        vTaskDelay(pdMS_TO_TICKS(20));
+    } else {
+        gpio_set_level(BOARD_PIN_LED, !BOARD_LED_ACTIVE_LEVEL);
+        s_led_locked = false;
+    }
 }
 
 void board_ctrl_request(bool active)

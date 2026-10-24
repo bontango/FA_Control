@@ -35,3 +35,10 @@ uint8_t board_dip_read(void);
  */
 void board_led_init(void);
 void board_led_set(bool on);
+
+/*
+ * Board v7: GPIO8 ist zugleich TMS. Waehrend fpga_jtag den TAP bedient, sperrt
+ * es die LED; board_led_set() laesst den Pin dann in Ruhe. Beim Entsperren wird
+ * die LED ausgeschaltet (high = TMS-Ruhepegel).
+ */
+void board_led_lock(bool locked);
