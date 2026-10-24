@@ -849,17 +849,63 @@ static esp_err_t fpgadump_get_handler(httpd_req_t *req)
  * mehr als ein Stueck davon. ?addr= waehlt den Bereich: 0 (Default) = Image,
  * ab 0x080000 = Spiel-ROMs (fpga_prog.h). Die Bitdrehung folgt dem Bereich: eine
  * .rbf muss gedreht ins EPCS, ROM-Daten ungedreht; ?rev= ueberstimmt das. */
+/* Kopf einer .rbf (Cyclone IV/10, komprimiert wie unkomprimiert): 32 Byte 0xFF,
+ * dann 0x6A. In EPCS-Reihenfolge (.rpd) ist 0x6A gespiegelt 0x56. Damit faellt
+ * eine Datei im falschen Abschnitt auf, BEVOR etwas geloescht ist: eine ROM-Datei
+ * als Image wuerde gedreht ueber den Bitstream geschrieben, eine .rbf als ROMs
+ * ueber die Spiele. */
+#define RBF_HEAD 33
+
+static bool rbf_head(const uint8_t *b, uint8_t sync)
+{
+    for (int i = 0; i < RBF_HEAD - 1; i++) {
+        if (b[i] != 0xFF) {
+            return false;
+        }
+    }
+    return b[RBF_HEAD - 1] == sync;
+}
+
 static esp_err_t fpgaup_post_handler(httpd_req_t *req)
 {
     char v[16];
     uint32_t addr = get_param(req, "addr", v, sizeof(v)) ? strtoul(v, NULL, 0) : 0;
     bool rev = get_param_int(req, "rev", addr == 0 ? 1 : 0) == 1;
+
+    /* Erst den Kopf lesen und pruefen, dann erst das FPGA anfassen. */
+    char chunk[1024];
+    size_t head = req->content_len < RBF_HEAD ? req->content_len : RBF_HEAD;
+    size_t got = 0;
+    while (got < head) {
+        int n = httpd_req_recv(req, chunk + got, head - got);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) {
+            continue;
+        }
+        if (n <= 0) {
+            return send_err(req, "Upload interrupted");
+        }
+        got += n;
+    }
+    const uint8_t *h = (const uint8_t *)chunk;
+    bool is_image = got == RBF_HEAD && (rbf_head(h, 0x6A) || rbf_head(h, 0x56));
+    if (addr == 0 && !(got == RBF_HEAD && rbf_head(h, rev ? 0x6A : 0x56))) {
+        return send_err(req, "Not an FPGA image (.rbf starts with 32 x FF, then 6A) - "
+                             "game ROMs go to WRITE GAME ROMS");
+    }
+    if (addr != 0 && is_image) {
+        return send_err(req, "This is an FPGA image (.rbf) - write it with WRITE, not as game ROMs");
+    }
+
     esp_err_t err = fpga_prog_write_begin(addr, req->content_len, rev);
     if (err != ESP_OK) {
         return fpga_err(req, err);
     }
-    char chunk[1024];
-    size_t left = req->content_len;
+    err = fpga_prog_write_chunk(h, got);
+    if (err != ESP_OK) {
+        fpga_prog_write_abort();
+        return fpga_err(req, err);
+    }
+    size_t left = req->content_len - got;
     while (left > 0) {
         int n = httpd_req_recv(req, chunk, left < sizeof(chunk) ? left : sizeof(chunk));
         if (n == HTTPD_SOCK_ERR_TIMEOUT) {

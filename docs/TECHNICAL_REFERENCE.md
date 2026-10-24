@@ -974,6 +974,12 @@ A board revision v7.1 could derive nCE from the nCONFIG net through an inverter 
     never reaches the image. For GottFA1_PLuS the file is `gottfa1_roms.bin` from
     `scripts\make_flash_hex.ps1 -Bin` (all 16 slots, 256 kB, 0x080000–0x0BFFFF).
   - Anything in between is refused before the FPGA is touched.
+  - **The file must fit the area.** The handler reads the first 33 bytes before it
+    touches anything. A `.rbf` starts with 32 × 0xFF and then 0x6A, compressed or not
+    (0x56 in EPCS order, `.rpd`). At `addr=0` anything else is refused ("Not an FPGA
+    image"), in the rom area a bitstream is refused. Otherwise a rom file in the wrong
+    section would land bit-reversed on the bitstream, or a `.rbf` on the games. Tested
+    on v7: both mix-ups refused within 1 s, the FPGA untouched.
 - **An interrupted upload** leaves an incomplete image: the FPGA will not start. It is not a
   brick, because the ESP runs independently and writes the image again on the next attempt.
 - **Verify:** SHA-256 over the bytes written, compared with a read-back of the same range.
