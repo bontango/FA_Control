@@ -23,6 +23,8 @@ void wifi_mgr_stop(void);
 
 wifi_mgr_mode_t wifi_mgr_get_mode(void);
 void wifi_mgr_get_ip(char *buf, size_t len);
+/* Letzte Chiptemperatur (-99 = unbekannt) und RSSI (0 = nicht verbunden), alle 5 s erneuert. */
+void wifi_mgr_diag(float *temp_c, int *rssi);
 
 /* Credentials in NVS speichern (Neustart macht der Aufrufer). */
 esp_err_t wifi_mgr_set_credentials(const char *ssid, const char *pass);

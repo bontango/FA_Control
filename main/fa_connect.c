@@ -35,6 +35,9 @@ const char *fa_connect_state_str(void)
         case FA_CONN_DENIED_REQ:   return "Control denied - request line (GPIO10) not seen";
         case FA_CONN_DENIED_OTHER: return "Control denied";
         case FA_CONN_NO_ANSWER:    return "No answer - check wiring and power";
+        case FA_CONN_MONITOR:      return "Monitor mode - read only, the game runs undisturbed";
+        case FA_CONN_NO_MONITOR:   return "This FPGA firmware has no monitor mode";
+        case FA_CONN_MON_FORMAT:   return "Monitor data do not match the reported hardware";
         default:                   return "Not connected";
     }
 }
@@ -137,6 +140,60 @@ esp_err_t fa_connect_run(void)
     names_select_for_id();
 
     ESP_LOGI(TAG, "Kontrolle aktiv");
+    return ESP_OK;
+}
+
+/* Layout des 0x6E-Abzugs (fa_control.vhd, Kopf "MONITOR", und die Belegung im
+ * Top-Level): Flags, Lampen, Spulen jetzt, Spulen gemerkt, Sound gemerkt,
+ * Schalter, Displays mit zwei BCD-Ziffern je Byte. Die Laenge folgt allein aus der
+ * Bestueckung -- passt sie nicht, ist das Layout ein anderes. */
+int fa_connect_monitor_len(const fa_conn_info_t *ci)
+{
+    int n = 1 + (ci->lamps + 7) / 8 + 2 * ((ci->coils + 7) / 8) + 1 + (ci->switches + 7) / 8;
+    for (int i = 0; i < ci->displays; i++) {
+        n += (ci->disp_width[i] + 1) / 2;
+    }
+    return n;
+}
+
+esp_err_t fa_connect_monitor(void)
+{
+    if (s_info.state == FA_CONN_ACTIVE) {
+        fa_connect_release();
+    }
+    memset(&s_info, 0, sizeof(s_info));
+
+    /* Die Info-Gruppe beantwortet fa_control.vhd auch ohne Kontrolle. */
+    query_counts();
+
+    uint8_t buf[LISY_MONITOR_MAX];
+    int r = lisy_monitor_read(buf, sizeof(buf));
+    s_info.last_code = r;
+
+    if (r < 0 && !s_info.hw[0]) {
+        s_info.state = FA_CONN_NO_ANSWER;
+    } else if (r == 0) {
+        s_info.state = FA_CONN_NO_MONITOR;
+    } else if (r != fa_connect_monitor_len(&s_info)) {
+        ESP_LOGW(TAG, "Monitor: %d Byte, erwartet %d", r, fa_connect_monitor_len(&s_info));
+        s_info.state = FA_CONN_MON_FORMAT;
+    } else {
+        s_info.state = FA_CONN_MONITOR;
+    }
+
+    if (s_info.state != FA_CONN_MONITOR) {
+        /* Wie bei einer verweigerten Kontrolle: ohne Modus keine Bestueckung, damit
+         * nichts so aussieht, als liefe der Monitor. Die Meldung bleibt stehen. */
+        fa_conn_state_t st = s_info.state;
+        memset(&s_info, 0, sizeof(s_info));
+        s_info.state = st;
+        s_info.last_code = r;
+        ESP_LOGW(TAG, "%s (Code %d)", fa_connect_state_str(), r);
+        return ESP_OK;
+    }
+
+    names_select_for_id();
+    ESP_LOGI(TAG, "Monitor aktiv, %d Byte je Abzug", r);
     return ESP_OK;
 }
 

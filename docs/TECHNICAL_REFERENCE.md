@@ -183,6 +183,54 @@ the game on its own after roughly 2 s. It is therefore a condition of active con
 comfort feature — which is exactly why it is coupled to the connection instead of being
 configurable. Making it switchable would mean declaring loss of control a user preference.
 
+### 4.2 Monitor mode (since v1.25)
+
+The page switch **CONTROL MODE / MONITOR MODE** in the header selects between the handshake
+above and a purely passive connection. `POST /api/monitor` runs `fa_connect_monitor()`:
+
+1. An active control is released first (GPIO10 high, watchdog off). The game restarts once,
+   and the browser asks before doing that.
+2. **No GPIO10, no `0x64`, no watchdog.** `query_counts()` reads the info group, which
+   `fa_control.vhd` answers without control as well.
+3. One snapshot `0x6E` is read as a probe:
+
+| Result | `fa_conn_state_t` | Message shown in the banner |
+|---|---|---|
+| length matches the inventory | `FA_CONN_MONITOR` | `Monitor mode - read only, the game runs undisturbed` |
+| length `0` | `FA_CONN_NO_MONITOR` | `This FPGA firmware has no monitor mode` |
+| other length | `FA_CONN_MON_FORMAT` | `Monitor data do not match the reported hardware` |
+| no answer at all | `FA_CONN_NO_ANSWER` | `No answer - check wiring and power` |
+
+In monitor mode the inventory is filled although nobody has control. The control endpoints
+therefore check `in_control()` (`state == FA_CONN_ACTIVE`) in addition to the range check and
+answer `400 Not in control mode`. Monitor mode ends with `POST /api/disconnect` — the game does
+not notice — or whenever `fa_connect_release()` runs (FPGA programming, deep sleep).
+
+**Opcode `0x6E` (110)** is an FA_Control extension, not part of LISY API 0.12. Reply: one length
+byte, then that many data bytes. Older counterparts answer every unknown opcode with `0x00`, so
+"length 0" doubles as "not supported" — no version comparison needed. The layout follows from
+the inventory alone (`fa_connect_monitor_len()`), bit 0 of each byte is the lowest number:
+
+| Part | Bytes | GottFA1 (36/8/75, displays 4/6/6/6/6) |
+|---|---|---|
+| flags: bit0 game running, bit1 FA control active, bit2 attract mode | 1 | 1 |
+| lamps, current state | ⌈lamps/8⌉ | 5 |
+| coils, current state (bit 0 = coil 1) | ⌈coils/8⌉ | 1 |
+| coils **seen since the last read** | ⌈coils/8⌉ | 1 |
+| sound lines seen since the last read — meaning per device, GottFA1: bit 0/1/2 = 10/100/1000 | 1 | 1 |
+| switches, numbered like `0x28` | ⌈switches/8⌉ | 10 |
+| displays in order 0..n, two BCD digits per byte, left digit in the high nibble, `≥ 0xA` = dark | Σ⌈digits/2⌉ | 14 |
+
+Coil and sound pulses last milliseconds while the browser asks every 500 ms (half the traffic of the
+first 250 ms; the dropouts seen then were caused by the v7 antenna, see § 9). The FPGA therefore
+keeps a sticky bit per line until the byte has been sent (setting wins over clearing), and the
+page lets the tile glow for one second. Nothing is lost between two reads.
+
+On the FPGA side `fa_control.vhd` only transports the bytes (generic `MON_BYTES`, port
+`mon_data`, `mon_rd`/`mon_idx` per sent byte); the top level of the project fills them. With
+`MON_BYTES = 0`, the default, the module behaves exactly as before. Implemented so far in
+GottFA1_PLuS (board v7, `N:\Projekte\FPGA System1\FPGA_source\top\SYS1.vhd`).
+
 ---
 
 ## 5. LISY command surface
@@ -219,6 +267,8 @@ Info group:
 | `0x09` | byte — number of switches |
 
 Control: `0x64` init/reset, `0x65` watchdog.
+
+Monitor: `0x6E` snapshot of the running game, without control — see § 4.2.
 
 Switch handling is stateful: the first `GET /api/state` after a connect does a full
 `0x28` refresh, every following one drains changes via `0x29`. Without granted control
@@ -550,7 +600,9 @@ Query parameters only — there is no JSON parsing anywhere. Responses are built
 | `GET /api/config` | inventory, connection state, device info, watchdog and pulse time as JSON |
 | `POST /api/config?pulse=50` | store coil pulse time (the only storable setting) |
 | `POST /api/connect` | run the handshake; replies like `GET /api/config` |
-| `POST /api/disconnect` | release control; replies like `GET /api/config` |
+| `POST /api/disconnect` | release control resp. end monitor mode; replies like `GET /api/config` |
+| `POST /api/monitor` | start monitor mode (§ 4.2); replies like `GET /api/config` |
+| `GET /api/monitor` | one `0x6E` snapshot, split up: `{"ok":1,"flags":n,"lamps":"hex","coils":"hex","coilsx":"hex","snd":n,"sw":"hex","disp":["nibbles",…]}`; `{"ok":0}` on a bad reply, `400` outside monitor mode |
 | `POST /api/lamp?id=5&on=1` | lamp on/off |
 | `POST /api/coil?id=3` | pulse a coil |
 | `POST /api/sound?id=7&on=1` | play / stop sound |
@@ -558,7 +610,7 @@ Query parameters only — there is no JSON parsing anywhere. Responses are built
 | `GET /api/state` | lamp/switch bitmaps (hex) + display texts |
 | `POST /api/reset` | LISY init/reset (`0x64`), returns `{"result":n}` |
 | `POST /api/wifi?ssid=&pass=` | store Wi-Fi credentials + reboot after 1 s |
-| `GET /api/status` | Wi-Fi mode (`ap`/`sta`), IP, firmware version |
+| `GET /api/status` | Wi-Fi mode (`ap`/`sta`), IP, firmware version, chip temperature `temp` (°C), `rssi` (dBm) — see § 9 |
 | `GET /api/fwlist` | `.bin` files on lisy.dev as JSON |
 | `POST /api/fwupdate?file=FA_Control_v1.13.bin` | start OTA update |
 | `/api/fpga…` | only on the EP4CE6 dev board v7, see § 14.4 |
@@ -585,7 +637,8 @@ handler sees it.
 `cfg.max_uri_handlers` in `web_server_start()` must be at least as large as the `uris[]`
 array — otherwise the last entries are silently not registered and fall through to the
 captive-portal handler. It sat at exactly 16 with 16 entries; v1.17 raised it to 24, the
-game rom endpoints to 32 (29 entries). **Count along when adding an endpoint.**
+game rom endpoints to 32 (29 entries), v1.24 to 40. v1.25 has 31 entries, 36 on v7.
+**Count along when adding an endpoint.**
 
 `POST /api/nameup` and `POST /api/romup` carry the file content in the body (a file does not
 fit sensibly into a URL); the name resp. game number stays a query parameter. Everything else
@@ -594,7 +647,9 @@ keeps to query parameters.
 The control endpoints (`lamp`, `coil`, `sound`, `display`) validate against
 `fa_connect_info()->…`. Without granted control those counts are 0, so every command ends
 in `400 Bad parameter` regardless of what the interface offers. The greyed-out tile in the
-browser is only the polite form of the same rule.
+browser is only the polite form of the same rule. In monitor mode the counts are filled, so
+these endpoints, `POST /api/reset` included, also check `in_control()` and answer
+`400 Not in control mode`.
 
 **Language convention:** every plain-text message reachable through the API is user
 interface and therefore English — this includes `fa_connect_state_str()` and all
@@ -676,7 +731,17 @@ renamed button has to be followed up there.
 
 [`main/wifi_mgr.c`](../main/wifi_mgr.c).
 
-- **STA mode** with credentials from NVS (namespace `wifi`), `STA_MAX_RETRY` = 5.
+- **STA mode** with credentials from NVS (namespace `wifi`). `STA_MAX_RETRY` = 5 applies only
+  to the first connect at boot. Once connected, a lost link is retried forever with a growing
+  pause (1, 2, 4, 8, 16 s, then every 30 s); before v1.25 the device stayed offline after five
+  failed attempts until it was restarted. The disconnect reason is logged.
+- Every 5 s it samples the **chip temperature** (internal sensor) and the **RSSI**;
+  `GET /api/status` reports both (`temp`, `-99` = unknown; `rssi`, `0` = not connected).
+  Added after the Wi-Fi dropouts on the v7 board (Oct 2026): with the Supermini 6–7 mm above
+  the piggyback's ground plane the chip antenna is detuned, the power amplifier heats the
+  chip from ~40 to over 50 °C within minutes, and the link degrades until the router drops
+  it. A steadily rising `temp` is the quickest sign of a bad mounting position. Details:
+  `ESP32-C3_SUPERMINI_PIGGYBACK.md` (hardware notes, not in this repo).
 - On failure or without credentials: **open access point `FA-Control`** on
   `192.168.4.1`, plus a mini DNS server answering every query with that address — this is
   what makes the captive portal pop up. `web_server.c` redirects all unknown URIs.

@@ -6,6 +6,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 
 #include "board_pins.h"
 
@@ -301,6 +302,35 @@ int lisy_init_reset(void)
     int r = cmd_resp1(&c, 1);
     ESP_LOGI(TAG, "Init/Reset -> %d", r);
     return r;
+}
+
+/* ---- Monitor ------------------------------------------------------------ */
+
+int lisy_monitor_read(uint8_t *buf, size_t max)
+{
+    uint8_t c = LISY_CMD_MONITOR;
+    uint8_t len;
+    int ret;
+
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    uart_flush_input(LISY_UART);
+    tx(&c, 1);
+    if (uart_read_bytes(LISY_UART, &len, 1, pdMS_TO_TICKS(RESP_TIMEOUT_MS)) != 1) {
+        ret = -1;
+    } else if (len == 0) {
+        ret = 0;
+    } else if (len > max) {
+        /* Rest abwarten und verwerfen, sonst steht er vor der naechsten Antwort */
+        vTaskDelay(pdMS_TO_TICKS(RESP_TIMEOUT_MS));
+        uart_flush_input(LISY_UART);
+        ret = -2;
+    } else {
+        /* 128 Byte brauchen bei 115200 Baud gut 11 ms -- der Timeout gilt fuer alle */
+        int n = uart_read_bytes(LISY_UART, buf, len, pdMS_TO_TICKS(RESP_TIMEOUT_MS));
+        ret = (n == len) ? len : -1;
+    }
+    xSemaphoreGive(s_mutex);
+    return ret;
 }
 
 /* ---- Abfragen (Info-Gruppe 0..9) ---------------------------------------- */

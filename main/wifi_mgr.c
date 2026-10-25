@@ -4,6 +4,8 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_timer.h"
+#include "driver/temperature_sensor.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -28,6 +30,14 @@ static wifi_mgr_mode_t s_mode = WIFI_MGR_MODE_AP;
 static char s_ip[16] = AP_IP_STR;
 static int s_retries;
 static bool s_stopping;   /* siehe wifi_mgr_stop() */
+static esp_timer_handle_t s_reconnect_timer;
+
+static void reconnect_cb(void *arg)
+{
+    if (!s_stopping) {
+        esp_wifi_connect();
+    }
+}
 
 /* ---- Mini-DNS-Server: beantwortet alle Anfragen mit 192.168.4.1 --------- */
 
@@ -83,7 +93,16 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retries < STA_MAX_RETRY) {
+        ESP_LOGW(TAG, "Getrennt, Grund %d",
+                 ((wifi_event_sta_disconnected_t *)data)->reason);
+        if (s_mode == WIFI_MGR_MODE_STA) {
+            /* Im Betrieb nie aufgeben: frueher war nach STA_MAX_RETRY Schluss, und das
+             * Geraet blieb bis zum Neustart offline. Pause waechst bis 30 s. */
+            s_retries++;
+            uint64_t ms = (s_retries < 6) ? (1000ULL << (s_retries - 1)) : 30000ULL;
+            ESP_LOGI(TAG, "Neuer Verbindungsversuch in %llu ms", ms);
+            esp_timer_start_once(s_reconnect_timer, ms * 1000);
+        } else if (s_retries < STA_MAX_RETRY) {
             s_retries++;
             ESP_LOGI(TAG, "Verbindungsversuch %d/%d", s_retries, STA_MAX_RETRY);
             esp_wifi_connect();
@@ -152,9 +171,53 @@ static void start_ap(void)
     ESP_LOGI(TAG, "AP-Modus: SSID '%s', IP %s (Captive Portal aktiv)", AP_SSID, s_ip);
 }
 
+/* Chiptemperatur und Signalstaerke, alle 5 s erneuert, fuer /api/status.
+ * Aufgenommen nach den WLAN-Aussetzern am v7 (25.10.2026): Der Supermini sass
+ * 6-7 mm ueber der Masseflaeche der Piggyback, die Antenne war verstimmt, und der
+ * Sendeverstaerker heizte den Chip binnen Minuten von ~40 auf ueber 50 C auf.
+ * Die Temperatur ist deshalb das schnellste Zeichen fuer eine schlechte Einbaulage. */
+static temperature_sensor_handle_t s_tsens;
+static volatile float s_diag_temp = -99.0f;
+static volatile int s_diag_rssi;
+
+static void diag_cb(void *arg)
+{
+    int rssi = 0;
+    esp_wifi_sta_get_rssi(&rssi);
+    float t = -99.0f;
+    if (s_tsens) {
+        temperature_sensor_get_celsius(s_tsens, &t);
+    }
+    s_diag_rssi = rssi;
+    s_diag_temp = t;
+}
+
+static void diag_start(void)
+{
+    temperature_sensor_config_t tc = TEMPERATURE_SENSOR_CONFIG_DEFAULT(10, 80);
+    if (temperature_sensor_install(&tc, &s_tsens) == ESP_OK) {
+        temperature_sensor_enable(s_tsens);
+    } else {
+        s_tsens = NULL;
+    }
+    static esp_timer_handle_t t;
+    const esp_timer_create_args_t a = { .callback = diag_cb, .name = "wifi_diag" };
+    if (esp_timer_create(&a, &t) == ESP_OK) {
+        esp_timer_start_periodic(t, 5 * 1000 * 1000);
+    }
+}
+
+void wifi_mgr_diag(float *temp_c, int *rssi)
+{
+    *temp_c = s_diag_temp;
+    *rssi = s_diag_rssi;
+}
+
 void wifi_mgr_start(void)
 {
     s_events = xEventGroupCreate();
+    const esp_timer_create_args_t rc = { .callback = reconnect_cb, .name = "wifi_rc" };
+    ESP_ERROR_CHECK(esp_timer_create(&rc, &s_reconnect_timer));
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -184,6 +247,7 @@ void wifi_mgr_start(void)
         if (bits & BIT_CONNECTED) {
             s_mode = WIFI_MGR_MODE_STA;
             ESP_LOGI(TAG, "Verbunden, IP %s", s_ip);
+            diag_start();
             if (mdns_init() == ESP_OK) {
                 mdns_hostname_set(MDNS_HOST);
                 mdns_instance_name_set("FA Control");

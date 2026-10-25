@@ -32,6 +32,12 @@
 #define LISY_CMD_SOUND_STOP     0x33
 #define LISY_CMD_INIT_RESET     0x64
 #define LISY_CMD_WATCHDOG       0x65
+/* Erweiterung von FA_Control, nicht in lisy_api.h: Istzustand in einem Rutsch,
+ * ohne Kontrolle. Antwort = Laenge + Daten, Laenge 0 = Gegenstelle kann es nicht
+ * (unbekannte Opcodes beantwortet fa_control.vhd mit 0x00). Layout in
+ * docs/TECHNICAL_REFERENCE.md "Monitor mode". */
+#define LISY_CMD_MONITOR        0x6E
+#define LISY_MONITOR_MAX        128
 
 /* Antwortcodes auf LISY_CMD_INIT_RESET. 0 = OK ist Protokoll; die Fehlernummern
  * legt die Gegenstelle fest (rtl/fa_control/fa_control.vhd). */
@@ -67,6 +73,11 @@ const uint8_t *lisy_switch_bitmap(void);
 
 /* Init/Reset: Rueckgabe 0=OK, sonst Fehlercode, -1 = keine Antwort */
 int lisy_init_reset(void);
+
+/* Monitor-Abzug (0x6E) nach buf, hoechstens max Bytes. Rueckgabe: Anzahl
+ * Datenbytes, 0 = Gegenstelle ohne Monitor, -1 = keine/unvollstaendige Antwort,
+ * -2 = laenger als max. */
+int lisy_monitor_read(uint8_t *buf, size_t max);
 
 /* ---- Abfragen (Info-Gruppe 0..9) ---------------------------------------- */
 /* Alle drei geben bei ausbleibender Antwort einen Fehler zurueck; die Gegenstelle

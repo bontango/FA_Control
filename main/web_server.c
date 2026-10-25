@@ -173,6 +173,15 @@ static esp_err_t config_get_handler(httpd_req_t *req)
 
 /* ---- API: Verbinden / Kontrolle zurueckgeben ----------------------------- */
 
+/* Im Monitor-Modus ist die Bestueckung gefuellt, ohne dass Kontrolle besteht.
+ * Die Bereichspruefung allein haelt die Steuerbefehle dann nicht mehr ab. */
+static bool in_control(void)
+{
+    return fa_connect_info()->state == FA_CONN_ACTIVE;
+}
+
+#define NO_CONTROL_MSG "Not in control mode"
+
 static esp_err_t connect_post_handler(httpd_req_t *req)
 {
     fa_connect_run();
@@ -180,6 +189,18 @@ static esp_err_t connect_post_handler(httpd_req_t *req)
     s_switches_initialized = false;
     memset(s_disp_text, 0, sizeof(s_disp_text));
     return config_get_handler(req);   /* gleich die frischen Werte zurueckliefern */
+}
+
+/* Monitor-Modus starten (Umschalter MONITOR MODE). Gibt eine aktive Kontrolle
+ * vorher zurueck -- das Spiel startet dann neu. Beendet wird er wie die Kontrolle
+ * ueber /api/disconnect. */
+static esp_err_t monitor_post_handler(httpd_req_t *req)
+{
+    fa_connect_monitor();
+    lisy_lamp_bitmap_clear();
+    s_switches_initialized = false;
+    memset(s_disp_text, 0, sizeof(s_disp_text));
+    return config_get_handler(req);
 }
 
 static esp_err_t disconnect_post_handler(httpd_req_t *req)
@@ -214,7 +235,9 @@ static esp_err_t config_post_handler(httpd_req_t *req)
     if (err != ESP_OK) {
         return send_err(req, "NVS error");
     }
-    lisy_coil_apply_pulse_time(fa_connect_info()->coils, g_cfg.coil_pulse_ms);
+    if (in_control()) {
+        lisy_coil_apply_pulse_time(fa_connect_info()->coils, g_cfg.coil_pulse_ms);
+    }
     ESP_LOGI(TAG, "Spulen-Pulszeit gespeichert: %u ms", g_cfg.coil_pulse_ms);
     return send_ok(req);
 }
@@ -222,12 +245,16 @@ static esp_err_t config_post_handler(httpd_req_t *req)
 /* ---- API: Steuerung ------------------------------------------------------ */
 
 /* Alle Steuer-Handler pruefen gegen die vom Geraet gemeldete Bestueckung. Ohne
- * gewaehrte Kontrolle steht die auf 0, damit weist schon die Bereichspruefung
- * jeden Befehl ab -- unabhaengig davon, was die Weboberflaeche anbietet. */
+ * Verbindung steht die auf 0, damit weist schon die Bereichspruefung jeden Befehl
+ * ab -- unabhaengig davon, was die Weboberflaeche anbietet. Im Monitor-Modus ist
+ * sie gefuellt, deshalb zusaetzlich in_control(). */
 static esp_err_t lamp_post_handler(httpd_req_t *req)
 {
     int id = get_param_int(req, "id", -1);
     int on = get_param_int(req, "on", -1);
+    if (!in_control()) {
+        return send_err(req, NO_CONTROL_MSG);
+    }
     if (id < 0 || id >= fa_connect_info()->lamps || on < 0) {
         return send_err(req, "Bad parameter");
     }
@@ -240,6 +267,9 @@ static esp_err_t coil_post_handler(httpd_req_t *req)
     int id = get_param_int(req, "id", -1);
     /* Spulen zaehlen ab 1 (LISY-Konvention, = Treiber Q1..Qn im Schaltplan) --
      * anders als Lampen, Schalter und Sounds. */
+    if (!in_control()) {
+        return send_err(req, NO_CONTROL_MSG);
+    }
     if (id < 1 || id > fa_connect_info()->coils) {
         return send_err(req, "Bad parameter");
     }
@@ -251,6 +281,9 @@ static esp_err_t sound_post_handler(httpd_req_t *req)
 {
     int id = get_param_int(req, "id", -1);
     int on = get_param_int(req, "on", 1);
+    if (!in_control()) {
+        return send_err(req, NO_CONTROL_MSG);
+    }
     if (id < 0 || id >= fa_connect_info()->sounds) {
         return send_err(req, "Bad parameter");
     }
@@ -268,6 +301,9 @@ static esp_err_t display_post_handler(httpd_req_t *req)
     int id = get_param_int(req, "id", -1);
     char text[CFG_MAX_DISP_W + 1] = "";
     get_param(req, "text", text, sizeof(text));
+    if (!in_control()) {
+        return send_err(req, NO_CONTROL_MSG);
+    }
     if (id < 0 || id >= ci->displays) {
         return send_err(req, "Bad parameter");
     }
@@ -311,8 +347,62 @@ static esp_err_t state_get_handler(httpd_req_t *req)
     return httpd_resp_sendstr(req, buf);
 }
 
+/* Istzustand im Monitor-Modus. Ein Abzug (0x6E) je Aufruf, zerlegt nach dem
+ * Layout aus fa_connect_monitor_len(); die Oberflaeche fragt alle 250 ms. */
+static esp_err_t monitor_get_handler(httpd_req_t *req)
+{
+    const fa_conn_info_t *ci = fa_connect_info();
+    if (ci->state != FA_CONN_MONITOR) {
+        return send_err(req, "Monitor mode not active");
+    }
+
+    uint8_t m[LISY_MONITOR_MAX];
+    int n = lisy_monitor_read(m, sizeof(m));
+    if (n != fa_connect_monitor_len(ci)) {
+        httpd_resp_set_type(req, "application/json");
+        return httpd_resp_sendstr(req, "{\"ok\":0}");
+    }
+
+    int nl = (ci->lamps + 7) / 8;
+    int nc = (ci->coils + 7) / 8;
+    int ns = (ci->switches + 7) / 8;
+    const uint8_t *p = m + 1;
+    char lamps[LISY_LAMP_BITMAP_LEN * 2 + 1];
+    char coils[16 * 2 + 1];
+    char coilsx[16 * 2 + 1];
+    char sw[LISY_SWITCH_BITMAP_LEN * 2 + 1];
+    bitmap_to_hex(p, nl, lamps);        p += nl;
+    bitmap_to_hex(p, nc, coils);        p += nc;
+    bitmap_to_hex(p, nc, coilsx);       p += nc;
+    uint8_t snd = *p++;
+    bitmap_to_hex(p, ns, sw);           p += ns;
+
+    /* Displays als Zeichenkette aus Ziffern-Nibbles, linke Ziffer zuerst */
+    char disp[CFG_MAX_DISPLAYS * (CFG_MAX_DISP_W + 4) + 4] = "";
+    size_t dp = 0;
+    for (int i = 0; i < ci->displays; i++) {
+        char d[CFG_MAX_DISP_W + 2];
+        int w = ci->disp_width[i];
+        bitmap_to_hex(p, (w + 1) / 2, d);
+        p += (w + 1) / 2;
+        d[w] = '\0';
+        dp += snprintf(disp + dp, sizeof(disp) - dp, "%s\"%s\"", i ? "," : "", d);
+    }
+
+    char buf[448];
+    snprintf(buf, sizeof(buf),
+             "{\"ok\":1,\"flags\":%u,\"lamps\":\"%s\",\"coils\":\"%s\",\"coilsx\":\"%s\","
+             "\"snd\":%u,\"sw\":\"%s\",\"disp\":[%s]}",
+             m[0], lamps, coils, coilsx, snd, sw, disp);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, buf);
+}
+
 static esp_err_t reset_post_handler(httpd_req_t *req)
 {
+    if (!in_control()) {
+        return send_err(req, NO_CONTROL_MSG);
+    }
     int r = lisy_init_reset();
     lisy_lamp_bitmap_clear();
     memset(s_disp_text, 0, sizeof(s_disp_text));
@@ -329,11 +419,14 @@ static esp_err_t status_get_handler(httpd_req_t *req)
 {
     char ip[16];
     wifi_mgr_get_ip(ip, sizeof(ip));
-    char buf[128];
+    float temp;
+    int rssi;
+    wifi_mgr_diag(&temp, &rssi);
+    char buf[192];
     snprintf(buf, sizeof(buf),
-             "{\"mode\":\"%s\",\"ip\":\"%s\",\"ver\":\"%s\"}",
+             "{\"mode\":\"%s\",\"ip\":\"%s\",\"ver\":\"%s\",\"temp\":%.1f,\"rssi\":%d}",
              wifi_mgr_get_mode() == WIFI_MGR_MODE_AP ? "ap" : "sta",
-             ip, esp_app_get_description()->version);
+             ip, esp_app_get_description()->version, temp, rssi);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
 }
@@ -936,7 +1029,7 @@ esp_err_t web_server_start(void)
     /* Muss >= Anzahl der Eintraege in uris[] sein, sonst werden die letzten
      * stillschweigend nicht registriert und laufen in den Captive-Portal-
      * Fallback. Beim Hinzufuegen eines Endpunkts hier mitzaehlen. */
-    cfg.max_uri_handlers = 40;
+    cfg.max_uri_handlers = 40;   /* v1.25: 31 Eintraege, bei v7 36 */
     cfg.lru_purge_enable = true;
     /* TLS-Client (fwlist via mbedTLS) laeuft im httpd-Task -> mehr Stack noetig */
     cfg.stack_size = 10240;
@@ -952,6 +1045,8 @@ esp_err_t web_server_start(void)
         { .uri = "/api/config",  .method = HTTP_POST, .handler = config_post_handler },
         { .uri = "/api/connect", .method = HTTP_POST, .handler = connect_post_handler },
         { .uri = "/api/disconnect", .method = HTTP_POST, .handler = disconnect_post_handler },
+        { .uri = "/api/monitor", .method = HTTP_POST, .handler = monitor_post_handler },
+        { .uri = "/api/monitor", .method = HTTP_GET,  .handler = monitor_get_handler },
         { .uri = "/api/lamp",    .method = HTTP_POST, .handler = lamp_post_handler },
         { .uri = "/api/coil",    .method = HTTP_POST, .handler = coil_post_handler },
         { .uri = "/api/sound",   .method = HTTP_POST, .handler = sound_post_handler },

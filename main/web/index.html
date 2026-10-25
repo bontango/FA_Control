@@ -57,6 +57,15 @@ h1 small{
 #status{font-size:.68rem;color:rgba(242,233,220,.72);letter-spacing:.08em}
 #status b{color:var(--cu-hi);font-weight:700}
 #logo{margin-left:auto;display:block;height:34px;width:auto}
+/* Umschalter CONTROL / MONITOR: zwei Seiten, keine Kachel. Monitor = nur lesen,
+   das Spiel laeuft weiter; Control = Uebernahme wie bisher. */
+#modesw{display:flex;border:1px solid var(--cu)}
+#modesw button{
+  background:transparent;color:var(--bg);border:0;font:inherit;font-size:.66rem;
+  letter-spacing:.12em;font-weight:700;padding:.35rem .75rem;cursor:pointer;
+}
+#modesw button:hover{color:var(--cu-hi)}
+#modesw button.act{background:var(--cu);color:#fff}
 #apwarn{
   display:none;margin:1rem 1.2rem 0;padding:.6rem .8rem;
   border:1px solid var(--warn);background:var(--warn-bg);color:var(--warn);
@@ -140,6 +149,12 @@ section.act{display:block}
   100%{background:var(--panel);color:var(--dim);border-color:var(--line-2)}
 }
 .cell.fire{animation:kick .5s ease-out}
+/* Monitor: Kacheln nur zum Ansehen */
+.cell.ro{cursor:default}
+.cell.ro:hover{border-color:var(--line-2)}
+.cell.ro.on:hover{border-color:var(--cu-dk)}
+.cell.sw.on:hover{border-color:var(--ok-dk)}
+#monitor fieldset .grid{margin-top:.2rem}
 /* ---- Displays ---- */
 .disp{
   display:flex;flex-wrap:wrap;align-items:center;gap:.7rem;
@@ -222,6 +237,10 @@ legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;f
 <header>
   <h1>FA·CONTROL<small>LISY PINBALL SERVICE TOOL</small></h1>
   <span id="status">CONNECTING …</span>
+  <div id="modesw">
+    <button id="m_control" class="act">CONTROL MODE</button>
+    <button id="m_monitor">MONITOR MODE</button>
+  </div>
   <img id="logo" src="/logo.png" alt="LISY development" width="224" height="114">
 </header>
 <div id="apwarn">▲ AP MODE — CLICK HERE TO SET UP WI-FI</div>
@@ -263,6 +282,24 @@ legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;f
     <button class="tile" data-s="fpga" id="t_fpga" style="display:none"><span class="no">09</span><span class="nm">FPGA</span><span class="ds">EPCS · UPLOAD · RECONFIGURE</span></button>
   </div>
 </div>
+
+<!-- Monitor-Modus: eigene Seite, ueber den Umschalter in der Kopfleiste. Liest den
+     Istzustand per LISY 0x6E, ohne Kontrolle -- das Spiel laeuft ungestoert. -->
+<section id="monitor"><div class="shead"><h2>MONITOR</h2></div>
+  <p class="hint">READ ONLY — THE GAME RUNS UNDISTURBED. REFRESHED 2×/S (LISY 0x6E).
+    COILS AND SOUND STAY LIT FOR ONE SECOND AFTER EACH PULSE.</p>
+  <fieldset><legend>STATE</legend>
+    <p class="hint" id="mstat" style="margin:0">–</p>
+    <div class="row" id="mstartrow" style="display:none">
+      <button class="btn" id="mstart">START MONITOR</button>
+    </div>
+  </fieldset>
+  <fieldset><legend>DISPLAYS</legend><div id="mdisp"></div></fieldset>
+  <fieldset id="mlamps"><legend>LAMPS</legend><div class="grid"></div></fieldset>
+  <fieldset id="mcoils"><legend>COILS</legend><div class="grid"></div></fieldset>
+  <fieldset id="msound"><legend>SOUND</legend><div class="grid"></div></fieldset>
+  <fieldset id="mswitches"><legend>SWITCHES</legend><div class="grid"></div></fieldset>
+</section>
 
 <section id="lamps"><div class="shead"><button class="back">◀ MENU</button><h2>LAMPS</h2></div>
   <p class="hint">CLICK = LAMP ON/OFF (LISY 0x0B/0x0C)</p><div class="grid"></div></section>
@@ -506,7 +543,10 @@ function show(id){
   if(id)$("#"+id).classList.add("act");
   clearInterval(pollTimer);pollTimer=null;
   clearInterval(homeTimer);homeTimer=null;
+  $("#m_monitor").classList.toggle("act",id==="monitor");
+  $("#m_control").classList.toggle("act",id!=="monitor");
   if(id==="switches"){poll();pollTimer=setInterval(poll,1000)}
+  if(id==="monitor"){monShow();if(cfg&&cfg.conn===6){monPoll();pollTimer=setInterval(monPoll,MON_POLL)}}
   if(id==="names")nmList();
   if(id==="roms")romList();
   if(id==="fpga")fpInfo("");
@@ -612,15 +652,17 @@ function buildGrids(){
     inp.onkeydown=function(e){if(e.key==="Enter")send()};
     dl.appendChild(div)})(d)}
   $("#c_pulse").value=cfg.pulse;
+  monBuild();
   applyConn();
 }
 
 /* ---- Verbindungszustand ---- */
-/* cfg.conn: 0=nicht verbunden 1=aktiv 2=DIP aus 3=Anforderung fehlt 4=sonstiges 5=keine Antwort */
+/* cfg.conn: 0=nicht verbunden 1=aktiv 2=DIP aus 3=Anforderung fehlt 4=sonstiges 5=keine Antwort
+   6=Monitor 7=FPGA ohne Monitor 8=Monitor-Daten passen nicht */
 function applyConn(){
-  var live=(cfg.conn===1),bar=$("#connbar");
-  bar.className=(live?"ok":(cfg.conn===0?"":"bad"));
-  bar.textContent=(live?"● ":"▲ ")+cfg.connmsg.toUpperCase();
+  var live=(cfg.conn===1),good=live||cfg.conn===6,bar=$("#connbar");
+  bar.className=(good?"ok":(cfg.conn===0?"":"bad"));
+  bar.textContent=(good?"● ":"▲ ")+cfg.connmsg.toUpperCase();
 
   $("#conninfo").textContent=live
     ? "DEVICE: "+cfg.hw+" · FIRMWARE "+cfg.fwver+" · LISY API "+cfg.apiver+" · GAME "+cfg.game+
@@ -681,6 +723,101 @@ function applyState(st){
     if(vls[d])vls[d].textContent=v});
 }
 function poll(){getj("/api/state",applyState)}
+
+/* ---- Monitor-Modus ----
+   Der ESP liefert je Abfrage einen 0x6E-Abzug, schon zerlegt (/api/monitor).
+   Spulen und Sound sind Pulse von Millisekunden: die Gegenstelle merkt sie bis
+   zur naechsten Abfrage (coilsx/snd), hier leuchten sie danach MON_GLOW ms nach. */
+/* 2 Abfragen/s, halber Verkehr gegenueber den anfaenglichen 4/s. Die Aussetzer damals
+   lagen an der Antenne des v7 (zu nah an der Piggyback), nicht an der Rate. Kurze Pulse gehen trotzdem nicht verloren -- die Merkbits im FPGA halten
+   sie bis zur naechsten Abfrage. */
+var MON_POLL=500,MON_GLOW=1000,monBusy=false,monCoilT=[],monSndT=[];
+/* Bedeutung der Soundbits je Geraet. GottFA1: die drei Tonleitungen 10/100/1000. */
+var MON_SND={GottFA1:["10","100","1000"]};
+function monSndNames(){return MON_SND[cfg.hw]||["0","1","2","3","4","5","6","7"]}
+function monBuild(){
+  mkgrid("#mlamps",cfg.lamps,"◉","ro",null,0,NAMES.lamps);
+  mkgrid("#mcoils",cfg.coils,"⚡","ro",null,1,NAMES.coils);
+  mkgrid("#mswitches",cfg.switches,"▣","sw",null,0,NAMES.switches);
+  var g=$("#msound .grid");g.innerHTML="";g.classList.remove("named");
+  monSndNames().forEach(function(n){
+    var c=document.createElement("button");c.className="cell ro";
+    c.innerHTML="<i>♪</i><b>"+n+"</b>";g.appendChild(c)});
+  var dl=$("#mdisp");dl.innerHTML="";
+  for(var d=0;d<cfg.displays;d++){
+    var w=cfg.dw[d]||6;
+    var div=document.createElement("div");div.className="disp";
+    var dn=NAMES.displays[d]?" "+esc(NAMES.displays[d].toUpperCase()):"";
+    div.innerHTML='<label>DISPLAY '+d+dn+'</label>'+
+      '<span class="seg"><span class="gh">'+"8".repeat(w)+'</span><span class="vl"></span></span>';
+    dl.appendChild(div)}
+  monCoilT=[];monSndT=[];
+}
+/* Statuszeile und START-Knopf; auch ohne laufenden Monitor (Fehlermeldung). */
+function monShow(){
+  var on=cfg&&cfg.conn===6;
+  $("#mstartrow").style.display=on?"none":"";
+  ["#mlamps","#mcoils","#msound","#mswitches"].forEach(function(s){
+    $(s).style.display=on?"":"none"});
+  $("#mdisp").parentNode.style.display=on?"":"none";
+  if(!cfg)return;
+  $("#mstat").textContent=on
+    ? "DEVICE: "+cfg.hw+" · FIRMWARE "+cfg.fwver+" · GAME "+cfg.game+
+      (NAMES.game?" ("+NAMES.game.toUpperCase()+")":"")
+    : (cfg.conn===0?"MONITOR NOT RUNNING":cfg.connmsg.toUpperCase())}
+function monGlow(sel,hex,hexx,times,n,now){
+  var cells=document.querySelectorAll(sel+" .cell");
+  for(var i=0;i<n&&i<cells.length;i++){
+    if(hexbit(hex,i)||(hexx&&hexbit(hexx,i)))times[i]=now;
+    cells[i].classList.toggle("on",times[i]!==undefined&&now-times[i]<MON_GLOW)}}
+function monApply(m){
+  if(!m.ok){$("#mstat").textContent="NO DATA FROM THE FPGA";return}
+  var now=Date.now();
+  var st=[(m.flags&1)?"GAME RUNNING":"BOOT / NO GAME"];
+  if(m.flags&4)st.push("ATTRACT MODE");
+  if(m.flags&2)st.push("FA CONTROL ACTIVE");
+  $("#mstat").textContent=st.join(" · ")+" — "+cfg.hw+" GAME "+cfg.game+
+    (NAMES.game?" ("+NAMES.game.toUpperCase()+")":"");
+  document.querySelectorAll("#mlamps .cell").forEach(function(c,i){
+    c.classList.toggle("on",hexbit(m.lamps,i)===1)});
+  document.querySelectorAll("#mswitches .cell").forEach(function(c,i){
+    c.classList.toggle("on",hexbit(m.sw,i)===1)});
+  monGlow("#mcoils",m.coils,m.coilsx,monCoilT,cfg.coils,now);
+  monGlow("#msound",("0"+m.snd.toString(16)).slice(-2),null,monSndT,monSndNames().length,now);
+  /* Ziffern-Nibbles, linke Stelle zuerst; >= 0xA ist dunkel. Geschuetztes
+     Leerzeichen, sonst faellt eine Luecke zwischen Ziffern weg. */
+  var vls=document.querySelectorAll("#mdisp .vl");
+  m.disp.forEach(function(s,d){
+    if(!vls[d])return;
+    var t="";
+    for(var k=0;k<s.length;k++){var v=parseInt(s.charAt(k),16);t+=v<10?v:" "}
+    vls[d].textContent=t})}
+/* Ohne Timeout wartete fetch() bei einem WLAN-Aussetzer, bis TCP aufgibt --
+   Minuten, in denen die Seite einfror. 2 s, dann die naechste Abfrage. */
+function monPoll(){
+  if(monBusy)return;monBusy=true;
+  var ac=window.AbortController?new AbortController():null;
+  var to=setTimeout(function(){if(ac)ac.abort()},2000);
+  fetch("/api/monitor",ac?{signal:ac.signal}:{}).then(function(r){
+    if(!r.ok){
+      /* Monitor wurde beendet (z. B. FPGA neu programmiert): Zustand neu holen */
+      clearInterval(pollTimer);pollTimer=null;
+      getj("/api/config",function(c){cfg=c;build();monShow()});return}
+    return r.json().then(monApply)})
+    .catch(function(){$("#mstat").textContent="NO CONNECTION TO FA-CONTROL — RETRYING …"})
+    .then(function(){clearTimeout(to);monBusy=false})}
+function monStart(){
+  if(cfg&&cfg.conn===1&&!confirm("Control is released and the game restarts. Continue?"))return;
+  fetch("/api/monitor",{method:"POST"}).then(function(r){return r.json()}).then(function(c){
+    cfg=c;build();show("monitor");
+    if(c.conn!==6)toast(c.connmsg.toUpperCase())})
+    .catch(function(){toast("NO CONNECTION")})}
+$("#m_monitor").onclick=function(){
+  if(cfg&&cfg.conn===6)show("monitor");else monStart()};
+$("#mstart").onclick=monStart;
+/* Zurueck zur Steuerung: den Monitor beenden (das Spiel merkt davon nichts). */
+$("#m_control").onclick=function(){
+  if(cfg&&cfg.conn===6)connectCall("/api/disconnect","MONITOR STOPPED");else show(null)};
 
 /* ---- Spulen-Pulszeit ---- */
 $("#savepulse").onclick=function(){
@@ -1049,7 +1186,8 @@ function romFetchFiles(){
 
 /* ---- Start ---- */
 function init(){
-  getj("/api/config",function(c){cfg=c;build()});
+  /* Laeuft der Monitor schon (Seite neu geladen), gleich dorthin. */
+  getj("/api/config",function(c){cfg=c;build();if(c.conn===6)show("monitor")});
   getj("/api/status",function(s){
     wifiMode=s.mode;
     $("#status").innerHTML="V<b>"+s.ver+"</b> · WI-FI <b>"+s.mode.toUpperCase()+

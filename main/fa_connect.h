@@ -34,6 +34,12 @@ typedef enum {
     FA_CONN_DENIED_REQ,    /* verweigert: Anforderungsleitung kam dort nicht an */
     FA_CONN_DENIED_OTHER,  /* verweigert: unbekannter Fehlercode */
     FA_CONN_NO_ANSWER,     /* keine Gegenstelle -- Verkabelung/Stromversorgung pruefen */
+    /* Monitor-Modus (seit v1.25): nur lesen, ohne GPIO10, ohne 0x64, ohne Watchdog.
+     * Das Spiel laeuft ungestoert weiter. Neue Zustaende stehen hinten, die
+     * Oberflaeche kennt die alten Nummern (conn === 1 = Kontrolle). */
+    FA_CONN_MONITOR,       /* Monitor laeuft, Bestueckung ist gefuellt */
+    FA_CONN_NO_MONITOR,    /* Gegenstelle antwortet, kennt 0x6E aber nicht */
+    FA_CONN_MON_FORMAT,    /* 0x6E-Antwort passt nicht zur gemeldeten Bestueckung */
 } fa_conn_state_t;
 
 typedef struct {
@@ -55,8 +61,17 @@ typedef struct {
 /* Verbindung aufbauen. Immer ESP_OK -- das Ergebnis steht in fa_connect_info(). */
 esp_err_t fa_connect_run(void);
 
-/* Anforderung zuruecknehmen; die Gegenstelle gibt die Kontrolle ans Spiel zurueck. */
+/* Anforderung zuruecknehmen; die Gegenstelle gibt die Kontrolle ans Spiel zurueck.
+ * Beendet ebenso den Monitor-Modus. */
 void fa_connect_release(void);
+
+/* Monitor-Modus starten: Info-Gruppe lesen und einen 0x6E-Abzug probieren, ohne die
+ * Kontrolle anzufordern. Eine aktive Kontrolle wird vorher zurueckgegeben (das Spiel
+ * startet dann neu). Immer ESP_OK -- das Ergebnis steht in fa_connect_info(). */
+esp_err_t fa_connect_monitor(void);
+
+/* Laenge, die ein 0x6E-Abzug bei der gemeldeten Bestueckung haben muss. */
+int fa_connect_monitor_len(const fa_conn_info_t *ci);
 
 const fa_conn_info_t *fa_connect_info(void);
 
