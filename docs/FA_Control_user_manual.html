@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="description" content="English - firmware 1.23" />
+  <meta name="description" content="English - firmware 1.25" />
   <title>FA_Control user manual</title>
   <style>
 
@@ -134,10 +134,10 @@ tbody tr:nth-child(even) { background: #f3f3f3; }
 <body>
 <h1 id="fa_control">FA_Control</h1>
 <p><strong>LISY pinball service tool on an ESP32-C3</strong></p>
-<p><strong>Firmware version 1.23</strong></p>
+<p><strong>Firmware version 1.25</strong></p>
 <p><strong>user manual</strong></p>
 <p><a href="mailto:ralf@lisy.dev">ralf@lisy.dev</a></p>
-<p>v1.23 23.10.2026</p>
+<p>v1.25 25.10.2026</p>
 <blockquote>
 <p>German version: <a href="FA_Control_Bedienungsanleitung.html">FA_Control_Bedienungsanleitung.html</a>.
 French version: <a href="FA_Control_manuel_utilisateur.html">FA_Control_manuel_utilisateur.html</a>.
@@ -582,6 +582,45 @@ counts. About 60 SternFA games fit.</p>
 - only a full installation over USB sets up (from firmware 1.21 on). The
 naming files survive that installation.</p>
 </blockquote>
+<h3 id="09--fpga">09 · FPGA</h3>
+<p>Only on the <strong>FPGA board v7</strong> (EP4CE6 dev board v7),
+where the module sits directly on the FPGA board, from firmware 1.24 on.
+On every other board this tile is not shown.</p>
+<p>Here FA_Control writes the configuration flash (EPCS) of the FPGA
+over Wi-Fi — no USB-Blaster, no Quartus. <strong>Every action in this
+menu holds the FPGA in reset:</strong> the game restarts, and a
+connection or monitor mode that is running ends. The page asks before it
+starts. CONNECT is not needed.</p>
+<ul>
+<li><strong>STATUS</strong> — <strong>CONF_DONE</strong> shows whether
+the FPGA is running (<strong>HIGH</strong>) or has no valid image
+(<strong>LOW</strong>). <strong>IDENTIFY EPCS</strong> reads type and
+size of the flash, <strong>RECONFIGURE</strong> restarts the FPGA from
+the flash, just like switching it off and on.</li>
+<li><strong>WRITE A NEW IMAGE</strong> — choose the <code>.rbf</code>
+file of the FPGA firmware and press <strong>WRITE</strong>. Leave
+<strong>REVERSE BITS (.RBF)</strong> ticked for <code>.rbf</code> files.
+It takes a few seconds; the image is read back and compared, then the
+FPGA restarts with it. Only the first 512 kB are written, the game ROMs
+stored behind them stay as they are.</li>
+<li><strong>WRITE GAME ROMS</strong> — the game ROMs, so that the board
+boots without an SD card. Choose the ROM file (for GottFA1_PLuS
+<code>gottfa1_roms.bin</code>) and keep the address
+<code>0x080000</code>. The FPGA image is never touched.</li>
+<li><strong>READ BACK</strong> — downloads a range of the flash as a
+file, for example to keep a copy of the current image before you write a
+new one.</li>
+</ul>
+<blockquote>
+<p>If writing breaks off — Wi-Fi gone, page closed — the FPGA does not
+start until a complete image is in the flash. Nothing is broken: write
+the image again. FA_Control itself keeps running and stays
+reachable.</p>
+</blockquote>
+<p>On the v7 board there is no DIP switch bank: FA_Control is on
+whenever the machine is. <strong>Mind the mounting height:</strong> the
+module needs about 15 mm distance to the FPGA board. Plugged in flat,
+its antenna is detuned and Wi-Fi drops out after a few minutes.</p>
 <hr />
 <h2 id="8-monitor-mode">8. Monitor mode</h2>
 <p>From firmware 1.25 on, with a board that supports it — so far

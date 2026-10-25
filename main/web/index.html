@@ -729,8 +729,9 @@ function poll(){getj("/api/state",applyState)}
    Spulen und Sound sind Pulse von Millisekunden: die Gegenstelle merkt sie bis
    zur naechsten Abfrage (coilsx/snd), hier leuchten sie danach MON_GLOW ms nach. */
 /* 2 Abfragen/s, halber Verkehr gegenueber den anfaenglichen 4/s. Die Aussetzer damals
-   lagen an der Antenne des v7 (zu nah an der Piggyback), nicht an der Rate. Kurze Pulse gehen trotzdem nicht verloren -- die Merkbits im FPGA halten
-   sie bis zur naechsten Abfrage. */
+   lagen an der Antenne des v7 (zu nah an der Piggyback), nicht an der Rate. Kurze
+   Pulse gehen trotzdem nicht verloren -- die Merkbits im FPGA halten sie bis zur
+   naechsten Abfrage. */
 var MON_POLL=500,MON_GLOW=1000,monBusy=false,monCoilT=[],monSndT=[];
 /* Bedeutung der Soundbits je Geraet. GottFA1: die drei Tonleitungen 10/100/1000. */
 var MON_SND={GottFA1:["10","100","1000"]};

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="description" content="Deutsch - Firmware 1.23" />
+  <meta name="description" content="Deutsch - Firmware 1.25" />
   <title>FA_Control Bedienungsanleitung</title>
   <style>
 
@@ -134,10 +134,10 @@ tbody tr:nth-child(even) { background: #f3f3f3; }
 <body>
 <h1 id="fa_control">FA_Control</h1>
 <p><strong>LISY-Servicegerät für Flipper auf einem ESP32-C3</strong></p>
-<p><strong>Firmware-Version 1.23</strong></p>
+<p><strong>Firmware-Version 1.25</strong></p>
 <p><strong>Bedienungsanleitung</strong></p>
 <p><a href="mailto:ralf@lisy.dev">ralf@lisy.dev</a></p>
-<p>v1.23 23.10.2026</p>
+<p>v1.25 25.10.2026</p>
 <blockquote>
 <p>Deutsche Fassung von <a href="FA_Control_user_manual.html">FA_Control_user_manual.html</a>.
 Version française : <a href="FA_Control_manuel_utilisateur.html">FA_Control_manuel_utilisateur.html</a>.
@@ -608,6 +608,46 @@ SternFA-Spiele passen.</p>
 Kachel 07 - nur eine Vollinstallation per USB einrichtet (ab Firmware
 1.21). Die Namensdateien bleiben dabei erhalten.</p>
 </blockquote>
+<h3 id="09--fpga">09 · FPGA</h3>
+<p>Nur auf der <strong>FPGA-Platine v7</strong> (EP4CE6 dev board v7),
+auf der das Modul direkt auf der FPGA-Platine sitzt, ab Firmware 1.24.
+Auf allen anderen Platinen wird diese Kachel nicht angezeigt.</p>
+<p>Hier schreibt FA_Control den Konfigurationsflash (EPCS) des FPGA über
+WLAN – ohne USB-Blaster, ohne Quartus. <strong>Jede Aktion in diesem
+Menü hält das FPGA im Reset:</strong> Das Spiel startet neu, eine
+laufende Verbindung oder ein laufender Monitor-Modus endet. Die Seite
+fragt vorher nach. CONNECT ist nicht nötig.</p>
+<ul>
+<li><strong>STATUS</strong> – <strong>CONF_DONE</strong> zeigt, ob das
+FPGA läuft (<strong>HIGH</strong>) oder kein gültiges Image hat
+(<strong>LOW</strong>). <strong>IDENTIFY EPCS</strong> liest Typ und
+Größe des Flash, <strong>RECONFIGURE</strong> startet das FPGA aus dem
+Flash neu, wie Aus- und Einschalten.</li>
+<li><strong>WRITE A NEW IMAGE</strong> – die <code>.rbf</code>-Datei der
+FPGA-Firmware wählen und <strong>WRITE</strong> drücken. <strong>REVERSE
+BITS (.RBF)</strong> bleibt bei <code>.rbf</code>-Dateien angehakt. Das
+dauert einige Sekunden; das Image wird zurückgelesen und verglichen,
+danach startet das FPGA damit. Geschrieben werden nur die ersten 512 kB,
+die dahinter abgelegten Spiel-ROMs bleiben, wie sie sind.</li>
+<li><strong>WRITE GAME ROMS</strong> – die Spiel-ROMs, damit die Platine
+ohne SD-Karte startet. Die ROM-Datei wählen (bei GottFA1_PLuS
+<code>gottfa1_roms.bin</code>) und die Adresse <code>0x080000</code>
+stehen lassen. Das FPGA-Image wird dabei nie berührt.</li>
+<li><strong>READ BACK</strong> – lädt einen Bereich des Flash als Datei
+herunter, etwa um vor dem Schreiben eines neuen Image eine Kopie des
+aktuellen zu behalten.</li>
+</ul>
+<blockquote>
+<p>Bricht das Schreiben ab – WLAN weg, Seite geschlossen –, startet das
+FPGA erst wieder, wenn ein vollständiges Image im Flash steht. Kaputt
+ist nichts: Schreiben Sie das Image einfach noch einmal. FA_Control
+selbst läuft weiter und bleibt erreichbar.</p>
+</blockquote>
+<p>Auf der Platine v7 gibt es keine DIP-Bank: FA_Control ist
+eingeschaltet, solange der Automat es ist. <strong>Achten Sie auf die
+Bauhöhe:</strong> Das Modul braucht etwa 15 mm Abstand zur FPGA-Platine.
+Flach aufgesteckt ist seine Antenne verstimmt, und das WLAN bricht nach
+einigen Minuten ab.</p>
 <hr />
 <h2 id="8-monitor-modus">8. Monitor-Modus</h2>
 <p>Ab Firmware 1.25, zusammen mit einer Platine, die ihn unterstützt —

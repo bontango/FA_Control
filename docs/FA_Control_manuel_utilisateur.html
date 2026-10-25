@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="description" content="Français - firmware 1.23" />
+  <meta name="description" content="Français - firmware 1.25" />
   <title>FA_Control manuel d&#39;utilisation</title>
   <style>
 
@@ -135,10 +135,10 @@ tbody tr:nth-child(even) { background: #f3f3f3; }
 <h1 id="fa_control">FA_Control</h1>
 <p><strong>Outil de service LISY pour flippers sur un
 ESP32-C3</strong></p>
-<p><strong>Version du firmware 1.23</strong></p>
+<p><strong>Version du firmware 1.25</strong></p>
 <p><strong>manuel d&#39;utilisation</strong></p>
 <p><a href="mailto:ralf@lisy.dev">ralf@lisy.dev</a></p>
-<p>v1.23 23.10.2026</p>
+<p>v1.25 25.10.2026</p>
 <blockquote>
 <p>Version française de <a href="FA_Control_user_manual.html">FA_Control_user_manual.html</a>.
 Deutsche Fassung: <a href="FA_Control_Bedienungsanleitung.html">FA_Control_Bedienungsanleitung.html</a>.
@@ -625,6 +625,48 @@ de la tuile 07 - seule une installation complète par USB crée (à partir
 du firmware 1.21). Les fichiers de noms survivent à cette
 installation.</p>
 </blockquote>
+<h3 id="09--fpga">09 · FPGA</h3>
+<p>Uniquement sur la <strong>carte FPGA v7</strong> (EP4CE6 dev board
+v7), où le module est monté directement sur la carte FPGA, à partir du
+firmware 1.24. Sur toutes les autres cartes, cette tuile n&#39;apparaît
+pas.</p>
+<p>FA_Control écrit ici la flash de configuration (EPCS) du FPGA par
+Wi-Fi – sans USB-Blaster ni Quartus. <strong>Chaque action de ce menu
+maintient le FPGA en reset :</strong> le jeu redémarre, et une connexion
+ou un mode moniteur en cours se termine. La page demande confirmation
+avant. CONNECT n&#39;est pas nécessaire.</p>
+<ul>
+<li><strong>STATUS</strong> – <strong>CONF_DONE</strong> indique si le
+FPGA fonctionne (<strong>HIGH</strong>) ou n&#39;a pas d&#39;image valide
+(<strong>LOW</strong>). <strong>IDENTIFY EPCS</strong> lit le type et la
+taille de la flash, <strong>RECONFIGURE</strong> redémarre le FPGA
+depuis la flash, comme une mise hors tension puis sous tension.</li>
+<li><strong>WRITE A NEW IMAGE</strong> – choisissez le fichier
+<code>.rbf</code> du firmware FPGA et appuyez sur
+<strong>WRITE</strong>. Laissez <strong>REVERSE BITS (.RBF)</strong>
+coché pour les fichiers <code>.rbf</code>. Cela prend quelques secondes
+; l&#39;image est relue et comparée, puis le FPGA redémarre avec elle. Seuls
+les 512 premiers ko sont écrits, les ROM de jeu enregistrées derrière
+restent intactes.</li>
+<li><strong>WRITE GAME ROMS</strong> – les ROM de jeu, pour que la carte
+démarre sans carte SD. Choisissez le fichier de ROM (pour GottFA1_PLuS
+<code>gottfa1_roms.bin</code>) et gardez l&#39;adresse
+<code>0x080000</code>. L&#39;image FPGA n&#39;est jamais touchée.</li>
+<li><strong>READ BACK</strong> – télécharge une zone de la flash sous
+forme de fichier, par exemple pour garder une copie de l&#39;image actuelle
+avant d&#39;en écrire une nouvelle.</li>
+</ul>
+<blockquote>
+<p>Si l&#39;écriture s&#39;interrompt – Wi-Fi perdu, page fermée –, le FPGA ne
+redémarre que lorsqu&#39;une image complète se trouve dans la flash. Rien
+n&#39;est cassé : écrivez simplement l&#39;image une nouvelle fois. FA_Control
+lui-même continue de fonctionner et reste joignable.</p>
+</blockquote>
+<p>Sur la carte v7, il n&#39;y a pas de banc DIP : FA_Control est allumé
+tant que le flipper l&#39;est. <strong>Attention à la hauteur de montage
+:</strong> le module a besoin d&#39;environ 15 mm de distance avec la carte
+FPGA. Enfiché à plat, son antenne est désaccordée et le Wi-Fi décroche
+au bout de quelques minutes.</p>
 <hr />
 <h2 id="8-mode-moniteur">8. Mode moniteur</h2>
 <p>À partir du firmware 1.25, avec une carte qui le prend en charge —
