@@ -35,7 +35,7 @@ const char *fa_connect_state_str(void)
         case FA_CONN_DENIED_REQ:   return "Control denied - request line (GPIO10) not seen";
         case FA_CONN_DENIED_OTHER: return "Control denied";
         case FA_CONN_NO_ANSWER:    return "No answer - check wiring and power";
-        case FA_CONN_MONITOR:      return "Monitor mode - read only, the game runs undisturbed";
+        case FA_CONN_MONITOR:      return "Monitor mode - the game keeps running";
         case FA_CONN_NO_MONITOR:   return "This FPGA firmware has no monitor mode";
         case FA_CONN_MON_FORMAT:   return "Monitor data do not match the reported hardware";
         default:                   return "Not connected";

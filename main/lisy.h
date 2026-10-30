@@ -37,6 +37,12 @@
  * (unbekannte Opcodes beantwortet fa_control.vhd mit 0x00). Layout in
  * docs/TECHNICAL_REFERENCE.md "Monitor mode". */
 #define LISY_CMD_MONITOR        0x6E
+/* Ebenfalls FA_Control: Schalter fuer das laufende Spiel schliessen. Ein Parameter
+ * (Bit 7 = zu), keine Antwort. Nur senden, wenn die Gegenstelle LISY_MON_FLAG_SIM
+ * meldet: fuer aeltere Staende ist der Opcode unbekannt und parameterlos, das
+ * Parameterbyte wuerde dort als naechster Befehl gelesen. */
+#define LISY_CMD_SIM_SWITCH     0x6F
+#define LISY_MON_FLAG_SIM       0x08  /* Flag-Byte des Monitor-Abzugs, Bit 3 */
 #define LISY_MONITOR_MAX        128
 
 /* Antwortcodes auf LISY_CMD_INIT_RESET. 0 = OK ist Protokoll; die Fehlernummern
@@ -78,6 +84,9 @@ int lisy_init_reset(void);
  * Datenbytes, 0 = Gegenstelle ohne Monitor, -1 = keine/unvollstaendige Antwort,
  * -2 = laenger als max. */
 int lisy_monitor_read(uint8_t *buf, size_t max);
+
+/* Schalter simulieren (0x6F), siehe LISY_CMD_SIM_SWITCH */
+void lisy_switch_sim(uint8_t idx, bool closed);
 
 /* ---- Abfragen (Info-Gruppe 0..9) ---------------------------------------- */
 /* Alle drei geben bei ausbleibender Antwort einen Fehler zurueck; die Gegenstelle

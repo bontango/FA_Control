@@ -306,6 +306,12 @@ int lisy_init_reset(void)
 
 /* ---- Monitor ------------------------------------------------------------ */
 
+void lisy_switch_sim(uint8_t idx, bool closed)
+{
+    uint8_t buf[2] = { LISY_CMD_SIM_SWITCH, (uint8_t)((idx & 0x7F) | (closed ? 0x80 : 0)) };
+    cmd_no_resp(buf, 2);
+}
+
 int lisy_monitor_read(uint8_t *buf, size_t max)
 {
     uint8_t c = LISY_CMD_MONITOR;

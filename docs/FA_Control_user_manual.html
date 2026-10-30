@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="description" content="English - firmware 1.25" />
+  <meta name="description" content="English - firmware 1.26" />
   <title>FA_Control user manual</title>
   <style>
 
@@ -134,10 +134,10 @@ tbody tr:nth-child(even) { background: #f3f3f3; }
 <body>
 <h1 id="fa_control">FA_Control</h1>
 <p><strong>LISY pinball service tool on an ESP32-C3</strong></p>
-<p><strong>Firmware version 1.25</strong></p>
+<p><strong>Firmware version 1.26</strong></p>
 <p><strong>user manual</strong></p>
 <p><a href="mailto:ralf@lisy.dev">ralf@lisy.dev</a></p>
-<p>v1.25 25.10.2026</p>
+<p>v1.26 30.10.2026</p>
 <blockquote>
 <p>German version: <a href="FA_Control_Bedienungsanleitung.html">FA_Control_Bedienungsanleitung.html</a>.
 French version: <a href="FA_Control_manuel_utilisateur.html">FA_Control_manuel_utilisateur.html</a>.
@@ -284,6 +284,11 @@ will find it in your router&#39;s device list.</p>
 <p>The top right of the page also shows the installed version, the mode
 (<code>STA</code> = on your home network, <code>AP</code> = its own
 network) and the IP address.</p>
+<p>From firmware 1.26 on the page opens in <strong>monitor mode</strong>
+(<a href="#8-monitor-mode">chapter 8</a>) when the board supports it; the
+game keeps running. <strong>CONTROL MODE</strong> at the top leads to the
+home screen with the tile menu. Without monitor support, or while control
+is active, the page opens on the home screen.</p>
 <hr />
 <h2 id="6-connecting">6. Connecting</h2>
 <p>The <strong>home screen is the connection procedure</strong>. It
@@ -624,22 +629,26 @@ its antenna is detuned and Wi-Fi drops out after a few minutes.</p>
 <hr />
 <h2 id="8-monitor-mode">8. Monitor mode</h2>
 <p>From firmware 1.25 on, with a board that supports it — so far
-<strong>GottFA1_PLuS on the FPGA board v7</strong>.</p>
+<strong>GottFA1_PLuS on the FPGA board v7</strong> and <strong>SternFA
+HW 2.0</strong> (from 5.3.1).</p>
 <p>Control mode takes the machine over. <strong>Monitor mode only
 watches.</strong> The game keeps running normally, and you can play
 while the page shows what the lamps, coils, sound, switches and displays
 are doing. That is the tool for faults that only show up during a game:
 a lamp that never lights, a coil that is never fired, a switch that does
 not register.</p>
-<p>The switch at the top of the page, <strong>CONTROL MODE | MONITOR
-MODE</strong>, selects the mode.</p>
+<p>The switch at the top of the page, <strong>MONITOR MODE | CONTROL
+MODE</strong>, selects the mode. From firmware 1.26 on, monitor mode starts
+by itself when the page is opened. On a wide window everything fits on one
+screen, with displays and switches at the top; on a phone the fields stay
+one below the other.</p>
 <p><strong>How to use it:</strong></p>
 <ol type="1">
-<li>Press <strong>MONITOR MODE</strong> at the top. If you are connected
-in control mode, FA_Control asks first: handing control back restarts
+<li>Open the page, or press <strong>MONITOR MODE</strong> at the top. If
+you are connected in control mode, FA_Control asks first: handing control back restarts
 the game.</li>
-<li>The bar turns green and reads <strong>MONITOR MODE - READ ONLY, THE
-GAME RUNS UNDISTURBED</strong>. The page is refreshed twice a second and
+<li>The bar turns green and reads <strong>MONITOR MODE - THE GAME KEEPS
+RUNNING</strong>. The page is refreshed twice a second and
 shows:
 <ul>
 <li><strong>STATE</strong> — whether a game is running or attract mode
@@ -650,15 +659,28 @@ them.</li>
 <li><strong>COILS</strong> — every pulse lights its tile for one second.
 Even the shortest pulse is never missed.</li>
 <li><strong>SOUND</strong> — the same for the sound lines. On GottFA1
-these are the 10, 100 and 1000 tones.</li>
+these are the 10, 100 and 1000 tones. Boards without sound lines, such as
+SternFA, do not show this field.</li>
 <li><strong>SWITCHES</strong> — closed switches are filled green.</li>
 </ul></li>
 <li>Press <strong>CONTROL MODE</strong> to leave. The monitor stops, and
 the game does not notice.</li>
 </ol>
 <p>Names from a naming file (<strong>07 · NAMES</strong>) appear on the
-tiles here too. Nothing can be switched in monitor mode — FA_Control
-refuses every control command until you connect in control mode.</p>
+tiles here too. Lamps, coils, displays and sound cannot be switched in
+monitor mode — FA_Control refuses those commands until you connect in
+control mode.</p>
+<p><strong>Simulating switches</strong> (from firmware 1.26, SternFA HW
+2.0 from 5.3.2, with option DIP 4 ON; the DIP is read at boot, so changing
+it needs a reset). Click a tile under <strong>SWITCHES</strong> to close
+that switch for the running game; a dashed frame marks it. Click again or
+press <strong>RELEASE ALL</strong> to open it. Several switches can be
+closed at once. A simulated switch can only close: a switch that is really
+closed stays closed.</p>
+<p><strong>Caution:</strong> the game reacts as to a real switch, so coils
+may fire. Keep hands out of the machine. All simulated switches are
+released about 2 seconds after the page stops asking, for instance when you
+leave it or the connection drops.</p>
 <p><strong>If it does not start</strong>, the reason is in the bar.
 <strong>START MONITOR</strong> tries again.</p>
 <table>

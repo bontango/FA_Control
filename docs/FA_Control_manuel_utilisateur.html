@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="description" content="Français - firmware 1.25" />
+  <meta name="description" content="Français - firmware 1.26" />
   <title>FA_Control manuel d&#39;utilisation</title>
   <style>
 
@@ -135,10 +135,10 @@ tbody tr:nth-child(even) { background: #f3f3f3; }
 <h1 id="fa_control">FA_Control</h1>
 <p><strong>Outil de service LISY pour flippers sur un
 ESP32-C3</strong></p>
-<p><strong>Version du firmware 1.25</strong></p>
+<p><strong>Version du firmware 1.26</strong></p>
 <p><strong>manuel d&#39;utilisation</strong></p>
 <p><a href="mailto:ralf@lisy.dev">ralf@lisy.dev</a></p>
-<p>v1.25 25.10.2026</p>
+<p>v1.26 30.10.2026</p>
 <blockquote>
 <p>Version française de <a href="FA_Control_user_manual.html">FA_Control_user_manual.html</a>.
 Deutsche Fassung: <a href="FA_Control_Bedienungsanleitung.html">FA_Control_Bedienungsanleitung.html</a>.
@@ -303,6 +303,12 @@ des appareils de votre box ou de votre routeur.</p>
 <p>En haut à droite, la page indique aussi la version installée, le mode
 (<code>STA</code> = sur votre réseau domestique, <code>AP</code> = son
 propre réseau) et l&#39;adresse IP.</p>
+<p>À partir du firmware 1.26, la page s&#39;ouvre en <strong>mode
+moniteur</strong> (<a href="#8-mode-moniteur">chapitre 8</a>) si la carte le
+prend en charge ; le jeu continue de tourner. <strong>CONTROL MODE</strong>
+en haut mène à l&#39;écran d&#39;accueil avec le menu de tuiles. Sans prise en
+charge du moniteur, ou si le contrôle est actif, la page s&#39;ouvre sur l&#39;écran
+d&#39;accueil.</p>
 <hr />
 <h2 id="6-se-connecter">6. Se connecter</h2>
 <p>L&#39;<strong>écran d&#39;accueil est la procédure de connexion</strong>. Il
@@ -670,7 +676,8 @@ au bout de quelques minutes.</p>
 <hr />
 <h2 id="8-mode-moniteur">8. Mode moniteur</h2>
 <p>À partir du firmware 1.25, avec une carte qui le prend en charge —
-pour l&#39;instant <strong>GottFA1_PLuS sur la carte FPGA v7</strong>.</p>
+pour l&#39;instant <strong>GottFA1_PLuS sur la carte FPGA v7</strong> et
+<strong>SternFA HW 2.0</strong> (à partir de 5.3.1).</p>
 <p>Le mode contrôle prend le flipper en main. <strong>Le mode moniteur
 se contente d&#39;observer.</strong> Le jeu continue normalement, et vous
 pouvez jouer pendant que la page montre ce que font les lampes, les
@@ -678,15 +685,18 @@ bobines, le son, les interrupteurs et les afficheurs. C&#39;est l&#39;outil pour
 les pannes qui n&#39;apparaissent qu&#39;en cours de partie : une lampe qui ne
 s&#39;allume jamais, une bobine jamais actionnée, un interrupteur qui n&#39;est
 pas pris en compte.</p>
-<p>Le sélecteur en haut de la page, <strong>CONTROL MODE | MONITOR
-MODE</strong>, choisit le mode.</p>
+<p>Le sélecteur en haut de la page, <strong>MONITOR MODE | CONTROL
+MODE</strong>, choisit le mode. À partir du firmware 1.26, le mode moniteur
+démarre tout seul à l&#39;ouverture de la page. Dans une fenêtre large, tout
+tient sur un écran, avec les afficheurs et les interrupteurs en haut ; sur
+un téléphone, les champs restent les uns sous les autres.</p>
 <p><strong>Mode d&#39;emploi :</strong></p>
 <ol type="1">
-<li>Appuyez en haut sur <strong>MONITOR MODE</strong>. Si vous êtes
-connecté en mode contrôle, FA_Control demande d&#39;abord confirmation :
+<li>Ouvrez la page ou appuyez en haut sur <strong>MONITOR MODE</strong>. Si
+vous êtes connecté en mode contrôle, FA_Control demande d&#39;abord confirmation :
 rendre le contrôle redémarre le jeu.</li>
-<li>La barre passe au vert et affiche <strong>MONITOR MODE - READ ONLY,
-THE GAME RUNS UNDISTURBED</strong>. La page est rafraîchie deux fois par
+<li>La barre passe au vert et affiche <strong>MONITOR MODE - THE GAME KEEPS
+RUNNING</strong>. La page est rafraîchie deux fois par
 seconde et montre :
 <ul>
 <li><strong>STATE</strong> — si une partie est en cours ou si le mode
@@ -698,7 +708,8 @@ cuivre.</li>
 <li><strong>COILS</strong> — chaque impulsion allume sa tuile pendant
 une seconde. Même l&#39;impulsion la plus courte n&#39;est jamais perdue.</li>
 <li><strong>SOUND</strong> — de même pour les lignes de son. Sur
-GottFA1, ce sont les tons 10, 100 et 1000.</li>
+GottFA1, ce sont les tons 10, 100 et 1000. Les cartes sans lignes de son,
+comme SternFA, n&#39;affichent pas ce champ.</li>
 <li><strong>SWITCHES</strong> — les interrupteurs fermés sont remplis de
 vert.</li>
 </ul></li>
@@ -706,9 +717,23 @@ vert.</li>
 s&#39;arrête, et le jeu ne s&#39;en aperçoit pas.</li>
 </ol>
 <p>Les noms d&#39;un fichier de noms (<strong>07 · NAMES</strong>)
-apparaissent ici aussi sur les tuiles. En mode moniteur, rien ne peut
-être commandé — FA_Control refuse toute commande jusqu&#39;à ce que vous
-vous connectiez en mode contrôle.</p>
+apparaissent ici aussi sur les tuiles. En mode moniteur, les lampes, les
+bobines, les afficheurs et le son ne peuvent pas être commandés —
+FA_Control refuse ces commandes jusqu&#39;à ce que vous vous connectiez en
+mode contrôle.</p>
+<p><strong>Simuler des interrupteurs</strong> (à partir du firmware 1.26,
+SternFA HW 2.0 à partir de 5.3.2, avec le DIP d&#39;option 4 sur ON ; le DIP
+est lu au démarrage, le changer demande donc un reset). Un clic sur une
+tuile sous <strong>SWITCHES</strong> ferme cet interrupteur pour le jeu en
+cours ; un cadre en pointillés le signale. Un nouveau clic ou
+<strong>RELEASE ALL</strong> le rouvre. Plusieurs interrupteurs peuvent être
+fermés en même temps. Un interrupteur simulé peut seulement fermer : un
+interrupteur réellement fermé reste fermé.</p>
+<p><strong>Attention :</strong> le jeu réagit comme à un véritable
+interrupteur, des bobines peuvent donc s&#39;actionner. Ne mettez pas les mains
+dans le flipper. Tous les interrupteurs simulés sont relâchés environ
+2 secondes après que la page a cessé d&#39;interroger, par exemple si vous la
+quittez ou si la connexion est coupée.</p>
 <p><strong>S&#39;il ne démarre pas</strong>, la raison est indiquée dans la
 barre. <strong>START MONITOR</strong> fait un nouvel essai.</p>
 <table>

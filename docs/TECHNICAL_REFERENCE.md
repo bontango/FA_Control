@@ -185,8 +185,13 @@ configurable. Making it switchable would mean declaring loss of control a user p
 
 ### 4.2 Monitor mode (since v1.25)
 
-The page switch **CONTROL MODE / MONITOR MODE** in the header selects between the handshake
-above and a purely passive connection. `POST /api/monitor` runs `fa_connect_monitor()`:
+The page switch **MONITOR MODE / CONTROL MODE** in the header selects between a purely passive
+connection and the handshake above. Since v1.26 monitor mode is the default of the **page**: on
+load `init()` sends `POST /api/monitor` unless control is active (`conn === 1`). If the result is
+not `FA_CONN_MONITOR`, the page stays on the home screen and the bar shows the reason. The firmware
+itself still connects to nothing at boot. Windows of at least 1000 px get a one-screen layout
+(`body.mon`), without a sound field when the device has neither sounds nor a `MON_SND` entry.
+`POST /api/monitor` runs `fa_connect_monitor()`:
 
 1. An active control is released first (GPIO10 high, watchdog off). The game restarts once,
    and the browser asks before doing that.
@@ -196,7 +201,7 @@ above and a purely passive connection. `POST /api/monitor` runs `fa_connect_moni
 
 | Result | `fa_conn_state_t` | Message shown in the banner |
 |---|---|---|
-| length matches the inventory | `FA_CONN_MONITOR` | `Monitor mode - read only, the game runs undisturbed` |
+| length matches the inventory | `FA_CONN_MONITOR` | `Monitor mode - the game keeps running` |
 | length `0` | `FA_CONN_NO_MONITOR` | `This FPGA firmware has no monitor mode` |
 | other length | `FA_CONN_MON_FORMAT` | `Monitor data do not match the reported hardware` |
 | no answer at all | `FA_CONN_NO_ANSWER` | `No answer - check wiring and power` |
@@ -213,7 +218,7 @@ the inventory alone (`fa_connect_monitor_len()`), bit 0 of each byte is the lowe
 
 | Part | Bytes | GottFA1 (36/8/75, displays 4/6/6/6/6) |
 |---|---|---|
-| flags: bit0 game running, bit1 FA control active, bit2 attract mode | 1 | 1 |
+| flags: bit0 game running, bit1 FA control active, bit2 attract mode, bit3 switches can be simulated | 1 | 1 |
 | lamps, current state | ⌈lamps/8⌉ | 5 |
 | coils, current state (bit 0 = coil 1) | ⌈coils/8⌉ | 1 |
 | coils **seen since the last read** | ⌈coils/8⌉ | 1 |
@@ -233,6 +238,16 @@ GottFA1_PLuS (board v7, `N:\Projekte\FPGA System1\FPGA_source\top\SYS1.vhd`) and
 (`N:\Projekte\FPGA Stern\FPGA_source\top\SternFA.vhd`, 36 bytes: 60 lamps, 19 coils, 40 switches,
 5 displays of 6 digits; sound byte always 0). SternFA has no internal lamp or coil matrix, so it
 decodes the PIA pins back (Bally -35 / PinMAME by35.c).
+
+**Simulating switches (`0x6F`, 111, since v1.26).** One parameter: bit 6..0 switch number, bit 7 =
+close, 0 = release. No reply. The switch is ORed onto the returns the game reads, so it can only
+close. Sent only when the last snapshot had flag bit 3 set: older counterparts treat the opcode as
+unknown and without a parameter, so the parameter byte would be read as the next command. Bit 3
+means the FPGA has the feature and its permission is given (SternFA HW 2.0 from 5.3.2: option DIP 4,
+latched at boot). `fa_control.vhd`: generic `HAS_SIM_SW`, port `sim_sw`. The FPGA releases all of
+them under FA control, without the permission, or after `WD_TIMEOUT_MS` (2 s) without a received
+byte; the snapshot requests keep that alive, so a closed browser leaves nothing stuck. Only the page
+knows which switches it closed, and it forgets them after the same 2 s gap.
 
 ---
 
@@ -605,6 +620,7 @@ Query parameters only — there is no JSON parsing anywhere. Responses are built
 | `POST /api/connect` | run the handshake; replies like `GET /api/config` |
 | `POST /api/disconnect` | release control resp. end monitor mode; replies like `GET /api/config` |
 | `POST /api/monitor` | start monitor mode (§ 4.2); replies like `GET /api/config` |
+| `POST /api/monsw?id=&on=` | monitor mode: close or release a simulated switch; `?all=0` releases all; `400` without flag bit 3 (§ 4.2) |
 | `GET /api/monitor` | one `0x6E` snapshot, split up: `{"ok":1,"flags":n,"lamps":"hex","coils":"hex","coilsx":"hex","snd":n,"sw":"hex","disp":["nibbles",…]}`; `{"ok":0}` on a bad reply, `400` outside monitor mode |
 | `POST /api/lamp?id=5&on=1` | lamp on/off |
 | `POST /api/coil?id=3` | pulse a coil |

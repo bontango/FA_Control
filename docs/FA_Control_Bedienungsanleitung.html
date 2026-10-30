@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="description" content="Deutsch - Firmware 1.25" />
+  <meta name="description" content="Deutsch - Firmware 1.26" />
   <title>FA_Control Bedienungsanleitung</title>
   <style>
 
@@ -134,10 +134,10 @@ tbody tr:nth-child(even) { background: #f3f3f3; }
 <body>
 <h1 id="fa_control">FA_Control</h1>
 <p><strong>LISY-Servicegerät für Flipper auf einem ESP32-C3</strong></p>
-<p><strong>Firmware-Version 1.25</strong></p>
+<p><strong>Firmware-Version 1.26</strong></p>
 <p><strong>Bedienungsanleitung</strong></p>
 <p><a href="mailto:ralf@lisy.dev">ralf@lisy.dev</a></p>
-<p>v1.25 25.10.2026</p>
+<p>v1.26 30.10.2026</p>
 <blockquote>
 <p>Deutsche Fassung von <a href="FA_Control_user_manual.html">FA_Control_user_manual.html</a>.
 Version française : <a href="FA_Control_manuel_utilisateur.html">FA_Control_manuel_utilisateur.html</a>.
@@ -296,6 +296,11 @@ war — und Sie finden sie in der Geräteliste Ihres Routers.</p>
 <p>Ganz oben rechts zeigt die Seite außerdem die installierte Version,
 die Betriebsart (<code>STA</code> = im Heimnetz, <code>AP</code> =
 eigenes Netz) und die IP-Adresse an.</p>
+<p>Ab Firmware 1.26 öffnet die Seite im <strong>Monitor-Modus</strong>
+(<a href="#8-monitor-modus">Kapitel 8</a>), wenn die Platine ihn unterstützt;
+das Spiel läuft dabei weiter. <strong>CONTROL MODE</strong> oben führt zur
+Startseite mit dem Kachelmenü. Ohne Monitor-Unterstützung oder bei aktiver
+Kontrolle öffnet die Seite auf der Startseite.</p>
 <hr />
 <h2 id="6-verbinden">6. Verbinden</h2>
 <p>Die <strong>Startseite ist der Verbindungsaufbau</strong>. Sie sehen
@@ -651,22 +656,26 @@ einigen Minuten ab.</p>
 <hr />
 <h2 id="8-monitor-modus">8. Monitor-Modus</h2>
 <p>Ab Firmware 1.25, zusammen mit einer Platine, die ihn unterstützt —
-bisher <strong>GottFA1_PLuS auf der FPGA-Platine v7</strong>.</p>
+bisher <strong>GottFA1_PLuS auf der FPGA-Platine v7</strong> und
+<strong>SternFA HW 2.0</strong> (ab 5.3.1).</p>
 <p>Der Control-Modus übernimmt die Anlage. <strong>Der Monitor-Modus
 schaut nur zu.</strong> Das Spiel läuft ganz normal weiter, und Sie
 können spielen, während die Seite zeigt, was Lampen, Spulen, Sound,
 Schalter und Displays tun. Das ist das Werkzeug für Fehler, die nur im
 Spiel auftreten: eine Lampe, die nie angeht, eine Spule, die nie
 ausgelöst wird, ein Schalter, der nicht ankommt.</p>
-<p>Der Umschalter oben auf der Seite, <strong>CONTROL MODE | MONITOR
-MODE</strong>, wählt den Modus.</p>
+<p>Der Umschalter oben auf der Seite, <strong>MONITOR MODE | CONTROL
+MODE</strong>, wählt den Modus. Ab Firmware 1.26 startet der Monitor-Modus
+beim Öffnen der Seite von selbst. Im breiten Fenster passt alles auf einen
+Bildschirm, Displays und Schalter stehen oben; am Handy bleiben die Felder
+untereinander.</p>
 <p><strong>So geht es:</strong></p>
 <ol type="1">
-<li>Oben <strong>MONITOR MODE</strong> drücken. Sind Sie im
-Control-Modus verbunden, fragt FA_Control vorher nach: Die Rückgabe der
+<li>Die Seite öffnen oder oben <strong>MONITOR MODE</strong> drücken. Sind
+Sie im Control-Modus verbunden, fragt FA_Control vorher nach: Die Rückgabe der
 Kontrolle startet das Spiel neu.</li>
-<li>Der Balken wird grün und zeigt <strong>MONITOR MODE - READ ONLY, THE
-GAME RUNS UNDISTURBED</strong>. Die Seite wird zweimal pro Sekunde
+<li>Der Balken wird grün und zeigt <strong>MONITOR MODE - THE GAME KEEPS
+RUNNING</strong>. Die Seite wird zweimal pro Sekunde
 aufgefrischt und zeigt:
 <ul>
 <li><strong>STATE</strong> — ob ein Spiel läuft oder der Attract-Modus
@@ -677,7 +686,8 @@ anzeigt.</li>
 <li><strong>COILS</strong> — jeder Puls lässt seine Kachel eine Sekunde
 lang aufleuchten. Auch der kürzeste Puls geht nicht verloren.</li>
 <li><strong>SOUND</strong> — dasselbe für die Tonleitungen. Beim GottFA1
-sind das die Töne 10, 100 und 1000.</li>
+sind das die Töne 10, 100 und 1000. Platinen ohne Tonleitungen, etwa
+SternFA, zeigen dieses Feld nicht.</li>
 <li><strong>SWITCHES</strong> — geschlossene Schalter sind grün
 gefüllt.</li>
 </ul></li>
@@ -685,9 +695,22 @@ gefüllt.</li>
 auf, und das Spiel merkt davon nichts.</li>
 </ol>
 <p>Namen aus einer Namensdatei (<strong>07 · NAMES</strong>) stehen auch
-hier auf den Kacheln. Schalten lässt sich im Monitor-Modus nichts —
-FA_Control weist jeden Steuerbefehl ab, bis Sie im Control-Modus
-verbinden.</p>
+hier auf den Kacheln. Lampen, Spulen, Displays und Sound lassen sich im
+Monitor-Modus nicht schalten — FA_Control weist diese Befehle ab, bis Sie
+im Control-Modus verbinden.</p>
+<p><strong>Schalter simulieren</strong> (ab Firmware 1.26, SternFA HW 2.0
+ab 5.3.2, mit Options-DIP 4 auf ON; der DIP wird beim Booten gelesen, eine
+Änderung braucht also einen Reset). Ein Klick auf eine Kachel unter
+<strong>SWITCHES</strong> schließt diesen Schalter für das laufende Spiel,
+ein gestrichelter Rahmen markiert ihn. Ein weiterer Klick oder
+<strong>RELEASE ALL</strong> öffnet ihn wieder. Mehrere Schalter können
+gleichzeitig geschlossen sein. Ein simulierter Schalter kann nur schließen:
+Ein wirklich geschlossener Schalter bleibt geschlossen.</p>
+<p><strong>Vorsicht:</strong> Das Spiel reagiert wie auf einen echten
+Schalter, Spulen können also auslösen. Nicht in die Maschine greifen. Alle
+simulierten Schalter werden etwa 2 Sekunden, nachdem die Seite nicht mehr
+abfragt, wieder frei, zum Beispiel wenn Sie die Seite verlassen oder die
+Verbindung abreißt.</p>
 <p><strong>Wenn er nicht startet</strong>, steht der Grund im Balken.
 <strong>START MONITOR</strong> versucht es erneut.</p>
 <table>

@@ -143,6 +143,8 @@ section.act{display:block}
 .cell.on{border-color:var(--cu-dk);background:var(--cu);color:#fff}
 .cell.sw{cursor:default}
 .cell.sw.on{border-color:var(--ok-dk);background:var(--ok);color:#fff}
+#mswitches.simok .cell{cursor:pointer}
+.cell.sw.sim{outline:2px dashed var(--cu-dk);outline-offset:-5px}
 .cell.on em,.cell.sw.on em{color:rgba(255,255,255,.85)}
 @keyframes kick{
   0%{background:var(--cu-hi);color:#fff;border-color:var(--cu-dk)}
@@ -155,6 +157,35 @@ section.act{display:block}
 .cell.ro.on:hover{border-color:var(--cu-dk)}
 .cell.sw.on:hover{border-color:var(--ok-dk)}
 #monitor fieldset .grid{margin-top:.2rem}
+/* Monitor auf breitem Fenster: alles auf einer Bildschirmseite, Displays und Schalter
+   oben. Am Handy bleibt es beim Untereinander, dort waeren die Kacheln zu klein. */
+@media (min-width:1000px){
+  body.mon main{max-width:none;padding:.5rem .8rem}
+  body.mon #connbar{margin:.4rem .8rem 0;padding:.3rem .6rem}
+  body.mon #monitor.act{display:grid;grid-template-columns:repeat(4,1fr);column-gap:.6rem}
+  body.mon #monitor .shead,body.mon #monitor>.hint{display:none}
+  body.mon #monitor fieldset{margin-bottom:.35rem;padding:.3rem .6rem .5rem;min-width:0;grid-column:1/-1}
+  body.mon #mstate{order:1;border:0;padding:0 .2rem;margin-bottom:.2rem;background:none}
+  body.mon #mstate legend{display:none}
+  body.mon #mstate .hint{margin:0}
+  body.mon #mdispf{order:2}
+  body.mon #mswitches{order:3;position:relative}
+  body.mon #mlamps{order:4}
+  body.mon #mcoils{order:5}
+  body.mon #monitor:not(.nosnd) #mcoils{grid-column:1/4}
+  body.mon #monitor #msound{order:6;grid-column:4/5}
+  body.mon #mdisp{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.4rem}
+  body.mon .disp{margin:0;padding:.25rem .4rem;gap:.1rem;flex-direction:column;align-items:flex-start;min-width:0}
+  body.mon .disp label{width:auto;font-size:.6rem;white-space:nowrap;overflow:hidden;max-width:100%}
+  body.mon #msimhint{margin:0 0 .25rem;padding-right:7.5rem;font-size:.6rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  body.mon #msimrow{position:absolute;right:.6rem;top:-.1rem;margin:0}
+  body.mon #msimrow .btn{padding:.1rem .5rem;font-size:.6rem}
+  body.mon #monitor .grid{grid-template-columns:repeat(auto-fill,minmax(40px,1fr));gap:.2rem}
+  body.mon #monitor .grid.named{grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
+  body.mon #monitor .grid.named .cell{min-height:40px;padding:.15rem .25rem}
+  body.mon #monitor .cell{font-size:.62rem}
+  body.mon #monitor .cell i{font-size:.72rem}
+}
 /* ---- Displays ---- */
 .disp{
   display:flex;flex-wrap:wrap;align-items:center;gap:.7rem;
@@ -238,8 +269,8 @@ legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;f
   <h1>FA·CONTROL<small>LISY PINBALL SERVICE TOOL</small></h1>
   <span id="status">CONNECTING …</span>
   <div id="modesw">
-    <button id="m_control" class="act">CONTROL MODE</button>
-    <button id="m_monitor">MONITOR MODE</button>
+    <button id="m_monitor" class="act">MONITOR MODE</button>
+    <button id="m_control">CONTROL MODE</button>
   </div>
   <img id="logo" src="/logo.png" alt="LISY development" width="224" height="114">
 </header>
@@ -286,19 +317,25 @@ legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;f
 <!-- Monitor-Modus: eigene Seite, ueber den Umschalter in der Kopfleiste. Liest den
      Istzustand per LISY 0x6E, ohne Kontrolle -- das Spiel laeuft ungestoert. -->
 <section id="monitor"><div class="shead"><h2>MONITOR</h2></div>
-  <p class="hint">READ ONLY — THE GAME RUNS UNDISTURBED. REFRESHED 2×/S (LISY 0x6E).
+  <p class="hint">THE GAME KEEPS RUNNING. REFRESHED 2×/S (LISY 0x6E).
     COILS AND SOUND STAY LIT FOR ONE SECOND AFTER EACH PULSE.</p>
-  <fieldset><legend>STATE</legend>
+  <fieldset id="mstate"><legend>STATE</legend>
     <p class="hint" id="mstat" style="margin:0">–</p>
     <div class="row" id="mstartrow" style="display:none">
       <button class="btn" id="mstart">START MONITOR</button>
     </div>
   </fieldset>
-  <fieldset><legend>DISPLAYS</legend><div id="mdisp"></div></fieldset>
+  <fieldset id="mdispf"><legend>DISPLAYS</legend><div id="mdisp"></div></fieldset>
   <fieldset id="mlamps"><legend>LAMPS</legend><div class="grid"></div></fieldset>
   <fieldset id="mcoils"><legend>COILS</legend><div class="grid"></div></fieldset>
   <fieldset id="msound"><legend>SOUND</legend><div class="grid"></div></fieldset>
-  <fieldset id="mswitches"><legend>SWITCHES</legend><div class="grid"></div></fieldset>
+  <fieldset id="mswitches"><legend>SWITCHES</legend>
+    <p class="hint" id="msimhint"></p>
+    <div class="grid"></div>
+    <div class="row" id="msimrow" style="display:none">
+      <button class="btn" id="msimrel">RELEASE ALL</button>
+    </div>
+  </fieldset>
 </section>
 
 <section id="lamps"><div class="shead"><button class="back">◀ MENU</button><h2>LAMPS</h2></div>
@@ -543,6 +580,7 @@ function show(id){
   if(id)$("#"+id).classList.add("act");
   clearInterval(pollTimer);pollTimer=null;
   clearInterval(homeTimer);homeTimer=null;
+  document.body.classList.toggle("mon",id==="monitor");
   $("#m_monitor").classList.toggle("act",id==="monitor");
   $("#m_control").classList.toggle("act",id!=="monitor");
   if(id==="switches"){poll();pollTimer=setInterval(poll,1000)}
@@ -733,13 +771,31 @@ function poll(){getj("/api/state",applyState)}
    Pulse gehen trotzdem nicht verloren -- die Merkbits im FPGA halten sie bis zur
    naechsten Abfrage. */
 var MON_POLL=500,MON_GLOW=1000,monBusy=false,monCoilT=[],monSndT=[];
+/* Simulierte Schalter: nur die Seite weiss, welche sie gesetzt hat. Das FPGA gibt sie
+   frei, wenn rund 2 s keine Abfrage kam, deshalb vergisst die Seite sie nach einer
+   ebenso langen Luecke auch (monLast). */
+var MON_SIM_GAP=2000,monSim={},monSimOk=false,monLast=0;
+function monSimShow(){
+  $("#mswitches").classList.toggle("simok",monSimOk);
+  $("#msimrow").style.display=monSimOk?"":"none";
+  $("#msimhint").textContent=monSimOk
+    ? "CLICK A SWITCH TO CLOSE IT FOR THE RUNNING GAME. COILS MAY FIRE. ALL ARE RELEASED WHEN YOU LEAVE THIS PAGE."
+    : "SIMULATING SWITCHES NEEDS FPGA FIRMWARE WITH THIS FEATURE AND ITS PERMISSION (SternFA: OPTION DIP 4 ON).";
+  document.querySelectorAll("#mswitches .cell").forEach(function(c,i){
+    c.classList.toggle("sim",monSim[i]===1)})}
+function monSwClick(no){
+  if(!monSimOk)return;
+  var on=monSim[no]!==1;
+  api("/api/monsw?id="+no+"&on="+(on?1:0),function(){
+    if(on)monSim[no]=1;else delete monSim[no];
+    monSimShow()})}
 /* Bedeutung der Soundbits je Geraet. GottFA1: die drei Tonleitungen 10/100/1000. */
 var MON_SND={GottFA1:["10","100","1000"]};
 function monSndNames(){return MON_SND[cfg.hw]||["0","1","2","3","4","5","6","7"]}
 function monBuild(){
   mkgrid("#mlamps",cfg.lamps,"◉","ro",null,0,NAMES.lamps);
   mkgrid("#mcoils",cfg.coils,"⚡","ro",null,1,NAMES.coils);
-  mkgrid("#mswitches",cfg.switches,"▣","sw",null,0,NAMES.switches);
+  mkgrid("#mswitches",cfg.switches,"▣","sw",monSwClick,0,NAMES.switches);
   var g=$("#msound .grid");g.innerHTML="";g.classList.remove("named");
   monSndNames().forEach(function(n){
     var c=document.createElement("button");c.className="cell ro";
@@ -758,8 +814,12 @@ function monBuild(){
 function monShow(){
   var on=cfg&&cfg.conn===6;
   $("#mstartrow").style.display=on?"none":"";
-  ["#mlamps","#mcoils","#msound","#mswitches"].forEach(function(s){
+  ["#mlamps","#mcoils","#mswitches"].forEach(function(s){
     $(s).style.display=on?"":"none"});
+  /* Ohne Tonleitungen (SternFA: SB-300 am Bus) wuerde das Feld nur leere Kacheln zeigen. */
+  var snd=cfg&&(cfg.sounds>0||MON_SND[cfg.hw]);
+  $("#msound").style.display=on&&snd?"":"none";
+  $("#monitor").classList.toggle("nosnd",!snd);
   $("#mdisp").parentNode.style.display=on?"":"none";
   if(!cfg)return;
   $("#mstat").textContent=on
@@ -783,6 +843,10 @@ function monApply(m){
     c.classList.toggle("on",hexbit(m.lamps,i)===1)});
   document.querySelectorAll("#mswitches .cell").forEach(function(c,i){
     c.classList.toggle("on",hexbit(m.sw,i)===1)});
+  monSimOk=(m.flags&8)!==0;
+  if(!monSimOk||now-monLast>MON_SIM_GAP)monSim={};
+  monLast=now;
+  monSimShow();
   monGlow("#mcoils",m.coils,m.coilsx,monCoilT,cfg.coils,now);
   monGlow("#msound",("0"+m.snd.toString(16)).slice(-2),null,monSndT,monSndNames().length,now);
   /* Ziffern-Nibbles, linke Stelle zuerst; >= 0xA ist dunkel. Geschuetztes
@@ -816,6 +880,8 @@ function monStart(){
 $("#m_monitor").onclick=function(){
   if(cfg&&cfg.conn===6)show("monitor");else monStart()};
 $("#mstart").onclick=monStart;
+$("#msimrel").onclick=function(){
+  api("/api/monsw?all=0",function(){monSim={};monSimShow()})};
 /* Zurueck zur Steuerung: den Monitor beenden (das Spiel merkt davon nichts). */
 $("#m_control").onclick=function(){
   if(cfg&&cfg.conn===6)connectCall("/api/disconnect","MONITOR STOPPED");else show(null)};
@@ -1187,8 +1253,16 @@ function romFetchFiles(){
 
 /* ---- Start ---- */
 function init(){
-  /* Laeuft der Monitor schon (Seite neu geladen), gleich dorthin. */
-  getj("/api/config",function(c){cfg=c;build();if(c.conn===6)show("monitor")});
+  /* Der Monitor ist die Vorgabe: er stoert das Spiel nicht und braucht keine Freigabe.
+     Laeuft er schon (Seite neu geladen), gleich dorthin. Hat jemand die Kontrolle, bleibt
+     das unangetastet. Kann die Gegenstelle keinen Monitor, gibt es die Startseite, der
+     Grund steht im Balken. */
+  getj("/api/config",function(c){
+    cfg=c;build();
+    if(c.conn===6)show("monitor");
+    else if(c.conn!==1)fetch("/api/monitor",{method:"POST"}).then(function(r){return r.json()})
+      .then(function(m){cfg=m;build();if(m.conn===6)show("monitor")})
+      .catch(function(){toast("NO CONNECTION")})});
   getj("/api/status",function(s){
     wifiMode=s.mode;
     $("#status").innerHTML="V<b>"+s.ver+"</b> · WI-FI <b>"+s.mode.toUpperCase()+

@@ -194,8 +194,13 @@ static esp_err_t connect_post_handler(httpd_req_t *req)
 /* Monitor-Modus starten (Umschalter MONITOR MODE). Gibt eine aktive Kontrolle
  * vorher zurueck -- das Spiel startet dann neu. Beendet wird er wie die Kontrolle
  * ueber /api/disconnect. */
+/* Flag-Byte des letzten Monitor-Abzugs. Gemerkt statt neu gelesen: jeder Abzug
+ * loescht in der Gegenstelle die Spulen-Merkbits. */
+static uint8_t s_mon_flags;
+
 static esp_err_t monitor_post_handler(httpd_req_t *req)
 {
+    s_mon_flags = 0;
     fa_connect_monitor();
     lisy_lamp_bitmap_clear();
     s_switches_initialized = false;
@@ -349,6 +354,32 @@ static esp_err_t state_get_handler(httpd_req_t *req)
 
 /* Istzustand im Monitor-Modus. Ein Abzug (0x6E) je Aufruf, zerlegt nach dem
  * Layout aus fa_connect_monitor_len(); die Oberflaeche fragt alle 250 ms. */
+/* Schalter fuer das laufende Spiel schliessen. Die Gegenstelle gibt sie von selbst
+ * wieder frei, wenn rund 2 s nichts mehr ankommt (Monitor-Abfragen halten das wach). */
+static esp_err_t monsw_post_handler(httpd_req_t *req)
+{
+    const fa_conn_info_t *ci = fa_connect_info();
+    if (ci->state != FA_CONN_MONITOR) {
+        return send_err(req, "Monitor mode not active");
+    }
+    if (!(s_mon_flags & LISY_MON_FLAG_SIM)) {
+        return send_err(req, "Switch simulation not available");
+    }
+    if (get_param_int(req, "all", 1) == 0) {
+        for (int i = 0; i < ci->switches; i++) {
+            lisy_switch_sim((uint8_t)i, false);
+        }
+        return send_ok(req);
+    }
+    int id = get_param_int(req, "id", -1);
+    int on = get_param_int(req, "on", -1);
+    if (id < 0 || id >= ci->switches || on < 0) {
+        return send_err(req, "Bad parameter");
+    }
+    lisy_switch_sim((uint8_t)id, on != 0);
+    return send_ok(req);
+}
+
 static esp_err_t monitor_get_handler(httpd_req_t *req)
 {
     const fa_conn_info_t *ci = fa_connect_info();
@@ -367,6 +398,7 @@ static esp_err_t monitor_get_handler(httpd_req_t *req)
     int nc = (ci->coils + 7) / 8;
     int ns = (ci->switches + 7) / 8;
     const uint8_t *p = m + 1;
+    s_mon_flags = m[0];
     char lamps[LISY_LAMP_BITMAP_LEN * 2 + 1];
     char coils[16 * 2 + 1];
     char coilsx[16 * 2 + 1];
@@ -1029,7 +1061,7 @@ esp_err_t web_server_start(void)
     /* Muss >= Anzahl der Eintraege in uris[] sein, sonst werden die letzten
      * stillschweigend nicht registriert und laufen in den Captive-Portal-
      * Fallback. Beim Hinzufuegen eines Endpunkts hier mitzaehlen. */
-    cfg.max_uri_handlers = 40;   /* v1.25: 31 Eintraege, bei v7 36 */
+    cfg.max_uri_handlers = 40;   /* v1.26: 32 Eintraege, bei v7 37 */
     cfg.lru_purge_enable = true;
     /* TLS-Client (fwlist via mbedTLS) laeuft im httpd-Task -> mehr Stack noetig */
     cfg.stack_size = 10240;
@@ -1047,6 +1079,7 @@ esp_err_t web_server_start(void)
         { .uri = "/api/disconnect", .method = HTTP_POST, .handler = disconnect_post_handler },
         { .uri = "/api/monitor", .method = HTTP_POST, .handler = monitor_post_handler },
         { .uri = "/api/monitor", .method = HTTP_GET,  .handler = monitor_get_handler },
+        { .uri = "/api/monsw",   .method = HTTP_POST, .handler = monsw_post_handler },
         { .uri = "/api/lamp",    .method = HTTP_POST, .handler = lamp_post_handler },
         { .uri = "/api/coil",    .method = HTTP_POST, .handler = coil_post_handler },
         { .uri = "/api/sound",   .method = HTTP_POST, .handler = sound_post_handler },
