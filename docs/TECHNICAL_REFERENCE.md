@@ -229,7 +229,10 @@ page lets the tile glow for one second. Nothing is lost between two reads.
 On the FPGA side `fa_control.vhd` only transports the bytes (generic `MON_BYTES`, port
 `mon_data`, `mon_rd`/`mon_idx` per sent byte); the top level of the project fills them. With
 `MON_BYTES = 0`, the default, the module behaves exactly as before. Implemented so far in
-GottFA1_PLuS (board v7, `N:\Projekte\FPGA System1\FPGA_source\top\SYS1.vhd`).
+GottFA1_PLuS (board v7, `N:\Projekte\FPGA System1\FPGA_source\top\SYS1.vhd`) and SternFA HW 2.0
+(`N:\Projekte\FPGA Stern\FPGA_source\top\SternFA.vhd`, 36 bytes: 60 lamps, 19 coils, 40 switches,
+5 displays of 6 digits; sound byte always 0). SternFA has no internal lamp or coil matrix, so it
+decodes the PIA pins back (Bally -35 / PinMAME by35.c).
 
 ---
 
