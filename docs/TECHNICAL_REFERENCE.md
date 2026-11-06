@@ -1033,14 +1033,25 @@ SRAM over JTAG (bit-banged on GPIO5/8/9/21, about 1.6 s). That design leaves the
 pins as plain inputs:
 
 - The design is `fpga/as_release`, with the dual-purpose pins set to `USE AS REGULAR IO`.
+  There is one Quartus revision per device: `as_release` (EP4CE6F17C8, board v7) and
+  `as_release_e22` (EP4CE22F17C8, board v7.1). `fpga_jtag.c` reads the IDCODE and picks the
+  matching stream from the table `RELEASES[]`; an unknown IDCODE is refused.
 - What gets shifted is not the `.rbf` but the exact data stream from the SVF that Quartus
   generates for the `.sof`: 22 bytes 0xFF, the `.rbf` with 15 header bytes changed, and
   4 bytes 0x00. `fpga/as_release/make_jtag_blob.py` checks the SVF command sequence against
   the one built into `fpga_jtag.c` and stores the stream zlib-packed in
-  `main/blob/as_release.jtag.z` (4.4 kB instead of 368 kB). It is unpacked with the ROM's
-  `tinfl` while shifting.
-- The sequence from the SVF: IDCODE check (0x020F10DD), PROGRAM 0x002, 10000 TCK, data,
-  CHECK_STATUS 0x004 (bit 226 of 603 = CONF_DONE), STARTUP 0x003, 40960 + 512 TCK, BYPASS.
+  `main/blob/<revision>.jtag.z` (EP4CE6: 4.2 kB instead of 368 kB, EP4CE22: 7.4 kB instead
+  of 719 kB). It is unpacked with the ROM's `tinfl` while shifting. Call:
+  `python make_jtag_blob.py [as_release|as_release_e22]` after
+  `quartus_sh --flow compile as_release -c <revision>`; the script also prints the
+  CHECK_STATUS length and the CONF_DONE bit, which go into `RELEASES[]`.
+- The sequence from the SVF: IDCODE check, PROGRAM 0x002, 10000 TCK, data, CHECK_STATUS 0x004,
+  STARTUP 0x003, 40960 + 512 TCK, BYPASS. Per device:
+
+  | Device | IDCODE | CHECK_STATUS | CONF_DONE |
+  |---|---|---|---|
+  | EP4CE6 (v7) | 0x020F10DD | 603 bits | bit 226 |
+  | EP4CE22 (v7.1) | 0x020F30DD (to be confirmed on the first board) | 732 bits | bit 286 |
 - GPIO8 is TMS and the LED at the same time. `board_led_lock()` keeps the blink task off it
   while the TAP is in use.
 
@@ -1053,7 +1064,8 @@ A board revision v7.1 could derive nCE from the nCONFIG net through an inverter 
   entered.
 - **Two areas, kept apart** (`?addr=`):
   - **Image:** `addr=0` (the default), at most **512 kB** (`FPGA_IMAGE_MAX`). It never
-    reaches the rom area. An EP4CE6 image is about 360 kB, or 156 kB compressed.
+    reaches the rom area. An EP4CE6 image is about 360 kB, or 156 kB compressed; an
+    EP4CE22 image is 719 kB, compressed about 270 kB (GottFA80 v7.1) - compression is required.
   - **Game roms:** `addr` ≥ 0x080000 on a 64 kB boundary, up to the end of the EPCS. It
     never reaches the image. For GottFA1_PLuS the file is `gottfa1_roms.bin` from
     `scripts\make_flash_hex.ps1 -Bin` (all 16 slots, 256 kB, 0x080000–0x0BFFFF).

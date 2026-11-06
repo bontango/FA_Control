@@ -13,8 +13,27 @@
 
 static const char *TAG = "jtag";
 
-extern const uint8_t release_z_start[] asm("_binary_as_release_jtag_z_start");
-extern const uint8_t release_z_end[]   asm("_binary_as_release_jtag_z_end");
+extern const uint8_t release_e6_start[]  asm("_binary_as_release_jtag_z_start");
+extern const uint8_t release_e6_end[]    asm("_binary_as_release_jtag_z_end");
+extern const uint8_t release_e22_start[] asm("_binary_as_release_e22_jtag_z_start");
+extern const uint8_t release_e22_end[]   asm("_binary_as_release_e22_jtag_z_end");
+
+/* Ein Leer-Design je Device. cs_len/cs_conf_done: Laenge des CHECK_STATUS-Registers
+ * und Lage von CONF_DONE darin, je Die verschieden - make_jtag_blob.py gibt beides
+ * aus der SVF aus. */
+typedef struct {
+    uint32_t       idcode;
+    const char    *name;
+    const uint8_t *start;
+    const uint8_t *end;
+    int            cs_len;
+    int            cs_conf_done;
+} release_t;
+
+static const release_t RELEASES[] = {
+    { FPGA_IDCODE_EP4CE6,  "EP4CE6",  release_e6_start,  release_e6_end,  603, 226 },
+    { FPGA_IDCODE_EP4CE22, "EP4CE22", release_e22_start, release_e22_end, 732, 286 },
+};
 
 /* Cyclone IV: Befehlsregister 10 Bit */
 #define IR_LEN          10
@@ -24,9 +43,6 @@ extern const uint8_t release_z_end[]   asm("_binary_as_release_jtag_z_end");
 #define IR_IDCODE       0x006
 #define IR_BYPASS       0x3FF
 
-/* CHECK_STATUS: 603 Bit, Bit 226 = CONF_DONE (aus der SVF von Quartus) */
-#define CS_LEN          603
-#define CS_CONF_DONE    226
 
 /* ---- Pins: direkte Registerzugriffe, gpio_set_level waere zu langsam ------ */
 
@@ -166,7 +182,7 @@ static void shift_bytes(const uint8_t *p, size_t n, bool last_chunk)
 /* Entpackt den Strom in einem 32-kB-Ringpuffer (= Woerterbuch von tinfl) und
  * schiebt jedes fertige Stueck sofort. Der Decompressor und der Puffer stehen
  * nur fuer diese Dauer im Heap. */
-static esp_err_t shift_stream(void)
+static esp_err_t shift_stream(const release_t *rel)
 {
     tinfl_decompressor *d = malloc(sizeof(tinfl_decompressor));
     uint8_t *dict = malloc(TINFL_LZ_DICT_SIZE);
@@ -176,8 +192,8 @@ static esp_err_t shift_stream(void)
         return ESP_ERR_NO_MEM;
     }
     tinfl_init(d);
-    const uint8_t *in = release_z_start;
-    size_t in_left = release_z_end - release_z_start;
+    const uint8_t *in = rel->start;
+    size_t in_left = rel->end - rel->start;
     size_t dict_ofs = 0, total = 0;
     esp_err_t err = ESP_OK;
 
@@ -224,25 +240,34 @@ esp_err_t fpga_jtag_load_release(void)
 {
     tap_open();
     uint32_t id = read_idcode();
-    if (id != FPGA_IDCODE_EP4CE6) {
+    const release_t *rel = NULL;
+    for (size_t k = 0; k < sizeof(RELEASES) / sizeof(RELEASES[0]); k++) {
+        if (RELEASES[k].idcode == id) {
+            rel = &RELEASES[k];
+            break;
+        }
+    }
+    if (!rel) {
         tap_close();
-        ESP_LOGE(TAG, "IDCODE 0x%08lX statt 0x%08X", (unsigned long)id, FPGA_IDCODE_EP4CE6);
+        ESP_LOGE(TAG, "IDCODE 0x%08lX unbekannt (EP4CE6 0x%08X, EP4CE22 0x%08X)",
+                 (unsigned long)id, FPGA_IDCODE_EP4CE6, FPGA_IDCODE_EP4CE22);
         return ESP_ERR_INVALID_RESPONSE;
     }
+    ESP_LOGI(TAG, "IDCODE 0x%08lX = %s", (unsigned long)id, rel->name);
 
     int64_t t0 = esp_log_timestamp();
     shift_ir(IR_PROGRAM);
     runtest_from_pause(10000);
     dr_enter();
-    esp_err_t err = shift_stream();
+    esp_err_t err = shift_stream(rel);
 
     shift_ir(IR_CHECK_STATUS);
     runtest_from_pause(50);
     dr_enter();
     int conf_done = 0;
-    for (int i = 0; i < CS_LEN; i++) {
-        int o = (i == CS_LEN - 1) ? dr_last(0) : clk(0, 0);
-        if (i == CS_CONF_DONE) {
+    for (int i = 0; i < rel->cs_len; i++) {
+        int o = (i == rel->cs_len - 1) ? dr_last(0) : clk(0, 0);
+        if (i == rel->cs_conf_done) {
             conf_done = o;
         }
     }

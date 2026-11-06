@@ -33,8 +33,10 @@ target_add_binary_data(${COMPONENT_LIB} ${WEB_GZ} BINARY DEPENDS web_gz_target)
 # und liesse sich vom gzip der Seite nicht wieder einholen.
 target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/web/logo.png" BINARY)
 
-# Board v7: JTAG-Datenstrom des Leer-Designs as_release, zlib-gepackt (~4 kB).
-# Erzeugt von fpga/as_release/make_jtag_blob.py, entpackt beim Schieben (fpga_jtag.c).
+# Board v7/v7.1: JTAG-Datenstrom des Leer-Designs as_release, zlib-gepackt
+# (EP4CE6 ~4 kB, EP4CE22 ~7 kB). Erzeugt von fpga/as_release/make_jtag_blob.py,
+# entpackt beim Schieben (fpga_jtag.c waehlt per IDCODE).
 if(CONFIG_FA_BOARD_PIGGYBACK_V7)
     target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/blob/as_release.jtag.z" BINARY)
+    target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/blob/as_release_e22.jtag.z" BINARY)
 endif()

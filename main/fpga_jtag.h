@@ -4,8 +4,8 @@
 #include "esp_err.h"
 
 /*
- * JTAG zum FPGA auf dem EP4CE6 dev board v7 -- Bit-Bang auf TCK/TMS/TDI/TDO
- * (GPIO5/8/9/21), nur in dieser Board-Variante gebaut.
+ * JTAG zum FPGA auf dem EP4CE6 dev board v7 (und v7.1 mit EP4CE22) -- Bit-Bang auf
+ * TCK/TMS/TDI/TDO (GPIO5/8/9/21), nur in dieser Board-Variante gebaut.
  *
  * Wozu: Das Cyclone IV haelt DCLK auch bei nCONFIG low aktiv low (nCE liegt auf
  * v7 fest auf GND), der ESP kommt so nicht an das EPCS (Befund 24.10.2026,
@@ -22,13 +22,21 @@
  * (board_led_lock). Danach sind TCK/TDI/TDO wieder hochohmige Eingaenge.
  */
 
+/* Je bekanntem Device ein eigenes Leer-Design (fpga/as_release, eine Quartus-Revision
+ * je Device), gewaehlt per IDCODE:
+ *   EP4CE6  Board v7    as_release      main/blob/as_release.jtag.z
+ *   EP4CE22 Board v7.1  as_release_e22  main/blob/as_release_e22.jtag.z
+ * Die EP4CE22-IDCODE stammt aus der Cyclone-IV-Liste (0x020F30DD), am ersten
+ * v7.1-Board mit /api/fpgadiag gegenpruefen. */
 #define FPGA_IDCODE_EP4CE6   0x020F10DD
+#define FPGA_IDCODE_EP4CE22  0x020F30DD
 
 /* IDCODE lesen. ESP_ERR_NOT_FOUND, wenn nur 0x00000000/0xFFFFFFFF kommt
  * (TDO haengt, keine Kette). */
 esp_err_t fpga_jtag_idcode(uint32_t *id);
 
-/* Leer-Design in den SRAM laden. ESP_ERR_INVALID_RESPONSE bei falschem IDCODE,
+/* Leer-Design passend zur IDCODE in den SRAM laden. ESP_ERR_INVALID_RESPONSE bei
+ * unbekannter IDCODE,
  * ESP_ERR_INVALID_STATE, wenn CHECK_STATUS kein CONF_DONE meldet. Das laufende
  * Design (und damit das Spiel) ist danach weg. */
 esp_err_t fpga_jtag_load_release(void);

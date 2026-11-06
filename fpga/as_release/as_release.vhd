@@ -1,4 +1,5 @@
--- as_release: Leer-Design fuer das EP4CE6 dev board v7 (EP4CE6F17C8).
+-- as_release: Leer-Design fuer das EP4CE6 dev board v7 (EP4CE6F17C8, Revision as_release)
+-- und das Board v7.1 (EP4CE22F17C8, Revision as_release_e22).
 --
 -- Zweck: Das FPGA haelt DCLK auch bei nCONFIG low aktiv low (nCE liegt auf v7
 -- fest auf GND), der ESP32 kommt so nicht an das EPCS. FA_Control laedt deshalb
