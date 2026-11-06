@@ -26,8 +26,8 @@
  * je Device), gewaehlt per IDCODE:
  *   EP4CE6  Board v7    as_release      main/blob/as_release.jtag.z
  *   EP4CE22 Board v7.1  as_release_e22  main/blob/as_release_e22.jtag.z
- * Die EP4CE22-IDCODE stammt aus der Cyclone-IV-Liste (0x020F30DD), am ersten
- * v7.1-Board mit /api/fpgadiag gegenpruefen. */
+ * Die EP4CE22-IDCODE 0x020F30DD am ersten v7.1-Board mit /api/fpgadiag gelesen
+ * (06.11.2026). */
 #define FPGA_IDCODE_EP4CE6   0x020F10DD
 #define FPGA_IDCODE_EP4CE22  0x020F30DD
 

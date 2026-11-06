@@ -1051,7 +1051,7 @@ pins as plain inputs:
   | Device | IDCODE | CHECK_STATUS | CONF_DONE |
   |---|---|---|---|
   | EP4CE6 (v7) | 0x020F10DD | 603 bits | bit 226 |
-  | EP4CE22 (v7.1) | 0x020F30DD (to be confirmed on the first board) | 732 bits | bit 286 |
+  | EP4CE22 (v7.1) | 0x020F30DD (read on the first board, 06.11.2026) | 732 bits | bit 286 |
 - GPIO8 is TMS and the LED at the same time. `board_led_lock()` keeps the blink task off it
   while the TAP is in use.
 
