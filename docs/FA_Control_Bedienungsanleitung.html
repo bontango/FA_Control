@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="description" content="Deutsch - Firmware 1.26" />
+  <meta name="description" content="Deutsch - Firmware 1.27" />
   <title>FA_Control Bedienungsanleitung</title>
   <style>
 
@@ -134,10 +134,10 @@ tbody tr:nth-child(even) { background: #f3f3f3; }
 <body>
 <h1 id="fa_control">FA_Control</h1>
 <p><strong>LISY-Servicegerät für Flipper auf einem ESP32-C3</strong></p>
-<p><strong>Firmware-Version 1.26</strong></p>
+<p><strong>Firmware-Version 1.27</strong></p>
 <p><strong>Bedienungsanleitung</strong></p>
 <p><a href="mailto:ralf@lisy.dev">ralf@lisy.dev</a></p>
-<p>v1.26 30.10.2026</p>
+<p>v1.27 06.11.2026</p>
 <blockquote>
 <p>Deutsche Fassung von <a href="FA_Control_user_manual.html">FA_Control_user_manual.html</a>.
 Version française : <a href="FA_Control_manuel_utilisateur.html">FA_Control_manuel_utilisateur.html</a>.
@@ -616,6 +616,8 @@ Kachel 07 - nur eine Vollinstallation per USB einrichtet (ab Firmware
 <h3 id="09--fpga">09 · FPGA</h3>
 <p>Nur auf der <strong>FPGA-Platine v7</strong> (EP4CE6 dev board v7),
 auf der das Modul direkt auf der FPGA-Platine sitzt, ab Firmware 1.24.
+Ab Firmware 1.27 auch auf der <strong>FPGA-Platine v7.1</strong> mit dem
+größeren EP4CE22; FA_Control erkennt den Chip selbst.
 Auf allen anderen Platinen wird diese Kachel nicht angezeigt.</p>
 <p>Hier schreibt FA_Control den Konfigurationsflash (EPCS) des FPGA über
 WLAN – ohne USB-Blaster, ohne Quartus. <strong>Jede Aktion in diesem

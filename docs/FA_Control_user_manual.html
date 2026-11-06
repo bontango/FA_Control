@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="description" content="English - firmware 1.26" />
+  <meta name="description" content="English - firmware 1.27" />
   <title>FA_Control user manual</title>
   <style>
 
@@ -134,10 +134,10 @@ tbody tr:nth-child(even) { background: #f3f3f3; }
 <body>
 <h1 id="fa_control">FA_Control</h1>
 <p><strong>LISY pinball service tool on an ESP32-C3</strong></p>
-<p><strong>Firmware version 1.26</strong></p>
+<p><strong>Firmware version 1.27</strong></p>
 <p><strong>user manual</strong></p>
 <p><a href="mailto:ralf@lisy.dev">ralf@lisy.dev</a></p>
-<p>v1.26 30.10.2026</p>
+<p>v1.27 06.11.2026</p>
 <blockquote>
 <p>German version: <a href="FA_Control_Bedienungsanleitung.html">FA_Control_Bedienungsanleitung.html</a>.
 French version: <a href="FA_Control_manuel_utilisateur.html">FA_Control_manuel_utilisateur.html</a>.
@@ -590,6 +590,8 @@ naming files survive that installation.</p>
 <h3 id="09--fpga">09 · FPGA</h3>
 <p>Only on the <strong>FPGA board v7</strong> (EP4CE6 dev board v7),
 where the module sits directly on the FPGA board, from firmware 1.24 on.
+From firmware 1.27 on also on the <strong>FPGA board v7.1</strong> with the
+larger EP4CE22; FA_Control recognises the chip by itself.
 On every other board this tile is not shown.</p>
 <p>Here FA_Control writes the configuration flash (EPCS) of the FPGA
 over Wi-Fi — no USB-Blaster, no Quartus. <strong>Every action in this

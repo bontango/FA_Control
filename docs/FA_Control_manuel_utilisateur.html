@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="description" content="Français - firmware 1.26" />
+  <meta name="description" content="Français - firmware 1.27" />
   <title>FA_Control manuel d&#39;utilisation</title>
   <style>
 
@@ -135,10 +135,10 @@ tbody tr:nth-child(even) { background: #f3f3f3; }
 <h1 id="fa_control">FA_Control</h1>
 <p><strong>Outil de service LISY pour flippers sur un
 ESP32-C3</strong></p>
-<p><strong>Version du firmware 1.26</strong></p>
+<p><strong>Version du firmware 1.27</strong></p>
 <p><strong>manuel d&#39;utilisation</strong></p>
 <p><a href="mailto:ralf@lisy.dev">ralf@lisy.dev</a></p>
-<p>v1.26 30.10.2026</p>
+<p>v1.27 06.11.2026</p>
 <blockquote>
 <p>Version française de <a href="FA_Control_user_manual.html">FA_Control_user_manual.html</a>.
 Deutsche Fassung: <a href="FA_Control_Bedienungsanleitung.html">FA_Control_Bedienungsanleitung.html</a>.
@@ -634,8 +634,9 @@ installation.</p>
 <h3 id="09--fpga">09 · FPGA</h3>
 <p>Uniquement sur la <strong>carte FPGA v7</strong> (EP4CE6 dev board
 v7), où le module est monté directement sur la carte FPGA, à partir du
-firmware 1.24. Sur toutes les autres cartes, cette tuile n&#39;apparaît
-pas.</p>
+firmware 1.24. À partir du firmware 1.27 également sur la <strong>carte
+FPGA v7.1</strong> avec le EP4CE22, plus grand ; FA_Control reconnaît la puce
+tout seul. Sur toutes les autres cartes, cette tuile n&#39;apparaît pas.</p>
 <p>FA_Control écrit ici la flash de configuration (EPCS) du FPGA par
 Wi-Fi – sans USB-Blaster ni Quartus. <strong>Chaque action de ce menu
 maintient le FPGA en reset :</strong> le jeu redémarre, et une connexion
