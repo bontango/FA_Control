@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 
 #include "board_pins.h"
+#include "app_config.h"   /* CFG_MAX_DISP_W */
 
 static const char *TAG = "lisy";
 
@@ -221,23 +222,40 @@ void lisy_sound_stop(uint8_t track)
 
 /* ---- Displays ----------------------------------------------------------- */
 
-void lisy_display_set(uint8_t d, const char *text, uint8_t width)
+void lisy_display_set(uint8_t d, const char *text, uint8_t width, bool ascii)
 {
     if (d > 6) {  /* Befehle 0x1E-0x24 = Displays 0-6 */
         return;
     }
-    uint8_t buf[2 + 16];
-    if (width > 16) {
-        width = 16;
+    uint8_t buf[2 + CFG_MAX_DISP_W];
+    if (width > CFG_MAX_DISP_W) {
+        width = CFG_MAX_DISP_W;
     }
     buf[0] = LISY_CMD_DISPLAY_BASE + d;
     buf[1] = width;
 
-    /* rechtsbuendig: links mit Blank (0x0F) auffuellen */
     size_t tlen = strlen(text);
     if (tlen > width) {
         tlen = width;
     }
+
+    if (ascii) {
+        /* linksbuendig, Rest Leerzeichen. Nur druckbares ASCII: 0x01 waere fuer den
+         * 10941 der Befehlsvorspann. */
+        for (size_t i = 0; i < width; i++) {
+            unsigned char c = (i < tlen) ? (unsigned char)text[i] : ' ';
+            if (c >= 'a' && c <= 'z') {
+                c = (unsigned char)(c - 'a' + 'A');
+            } else if (c < 0x20 || c > 0x7E) {
+                c = ' ';
+            }
+            buf[2 + i] = c;
+        }
+        cmd_no_resp(buf, 2 + width);
+        return;
+    }
+
+    /* rechtsbuendig: links mit Blank (0x0F) auffuellen */
     size_t pad = width - tlen;
     for (size_t i = 0; i < width; i++) {
         char c = (i < pad) ? ' ' : text[i - pad];

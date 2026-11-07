@@ -106,6 +106,29 @@ static void bitmap_to_hex(const uint8_t *bm, size_t len, char *out)
     out[len * 2] = '\0';
 }
 
+/* Text (hoechstens len Zeichen) als JSON-Stringinhalt nach out: " und \ maskiert,
+ * nicht druckbare Zeichen als Leerzeichen. out braucht 2 * len + 1 Byte. Fuer die
+ * ASCII-Displays (seit 1.28) -- deren Inhalt kommt vom Spiel bzw. vom Benutzer. */
+static void text_to_json(const uint8_t *s, size_t len, char *out)
+{
+    size_t o = 0;
+    for (size_t i = 0; i < len && s[i] != '\0'; i++) {
+        uint8_t c = s[i] & 0x7F;
+        if (c < 0x20 || c == 0x7F) {
+            c = ' ';
+        }
+        if (c == '"' || c == '\\') {
+            out[o++] = '\\';
+        }
+        out[o++] = (char)c;
+    }
+    out[o] = '\0';
+}
+
+/* Groesse der JSON-Liste aller Displays: je Display Text mit Maskierung (2 Byte je
+ * Stelle), zwei Anfuehrungszeichen und ein Komma. */
+#define DISP_JSON_LEN (CFG_MAX_DISPLAYS * (2 * CFG_MAX_DISP_W + 3) + 4)
+
 /* ---- Statische Seite / Captive Portal ----------------------------------- */
 
 static esp_err_t root_get_handler(httpd_req_t *req)
@@ -143,24 +166,26 @@ static esp_err_t config_get_handler(httpd_req_t *req)
 {
     const fa_conn_info_t *ci = fa_connect_info();
     char dw[64] = "";
-    size_t p = 0;
+    char dt[64] = "";   /* LISY-Displaytypen, 5/6 = ASCII (seit 1.28) */
+    size_t p = 0, q = 0;
     for (int i = 0; i < ci->displays && i < CFG_MAX_DISPLAYS; i++) {
         p += snprintf(dw + p, sizeof(dw) - p, "%s%u", i ? "," : "", ci->disp_width[i]);
+        q += snprintf(dt + q, sizeof(dt) - q, "%s%u", i ? "," : "", ci->disp_type[i]);
     }
     /* Kennung dieser Anlage, "<HW>_<GAME>" -- der Name, den die Namensdatei
      * tragen muss. Die Oberflaeche zeigt sie im Menue NAMES an. */
     char gameid[NAMES_MAX_ID];
     names_game_id(gameid, sizeof(gameid));
 
-    char buf[576];
+    char buf[640];
     snprintf(buf, sizeof(buf),
              "{\"lamps\":%u,\"coils\":%u,\"switches\":%u,\"sounds\":%u,"
-             "\"displays\":%u,\"dw\":[%s],\"wd\":%d,\"wdlast\":%d,\"pulse\":%u,"
+             "\"displays\":%u,\"dw\":[%s],\"dt\":[%s],\"wd\":%d,\"wdlast\":%d,\"pulse\":%u,"
              "\"conn\":%d,\"connmsg\":\"%s\","
              "\"hw\":\"%s\",\"fwver\":\"%s\",\"apiver\":\"%s\",\"game\":\"%s\","
              "\"namesfs\":%d,\"names\":\"%s\",\"gameid\":\"%s\",\"romfs\":%d,\"fpga\":%d}",
              ci->lamps, ci->coils, ci->switches, ci->sounds,
-             ci->displays, dw,
+             ci->displays, dw, dt,
              lisy_watchdog_enabled() ? 1 : 0, lisy_watchdog_last_result(),
              g_cfg.coil_pulse_ms,
              (int)ci->state, fa_connect_state_str(),
@@ -312,7 +337,7 @@ static esp_err_t display_post_handler(httpd_req_t *req)
     if (id < 0 || id >= ci->displays) {
         return send_err(req, "Bad parameter");
     }
-    lisy_display_set((uint8_t)id, text, ci->disp_width[id]);
+    lisy_display_set((uint8_t)id, text, ci->disp_width[id], FA_DISP_IS_ASCII(ci->disp_type[id]));
     strlcpy(s_disp_text[id], text, sizeof(s_disp_text[id]));
     return send_ok(req);
 }
@@ -337,14 +362,15 @@ static esp_err_t state_get_handler(httpd_req_t *req)
     bitmap_to_hex(lisy_lamp_bitmap(), LISY_LAMP_BITMAP_LEN, lamps_hex);
     bitmap_to_hex(lisy_switch_bitmap(), LISY_SWITCH_BITMAP_LEN, sw_hex);
 
-    char disp[CFG_MAX_DISPLAYS * (CFG_MAX_DISP_W + 4) + 4] = "";
+    char disp[DISP_JSON_LEN] = "";
     size_t p = 0;
     for (int i = 0; i < ci->displays; i++) {
-        p += snprintf(disp + p, sizeof(disp) - p, "%s\"%s\"",
-                      i ? "," : "", s_disp_text[i]);
+        char t[2 * CFG_MAX_DISP_W + 1];
+        text_to_json((const uint8_t *)s_disp_text[i], CFG_MAX_DISP_W, t);
+        p += snprintf(disp + p, sizeof(disp) - p, "%s\"%s\"", i ? "," : "", t);
     }
 
-    char buf[320];
+    char buf[64 + LISY_LAMP_BITMAP_LEN * 2 + LISY_SWITCH_BITMAP_LEN * 2 + DISP_JSON_LEN];
     snprintf(buf, sizeof(buf),
              "{\"lamps\":\"%s\",\"switches\":\"%s\",\"disp\":[%s]}",
              lamps_hex, sw_hex, disp);
@@ -409,19 +435,32 @@ static esp_err_t monitor_get_handler(httpd_req_t *req)
     uint8_t snd = *p++;
     bitmap_to_hex(p, ns, sw);           p += ns;
 
-    /* Displays als Zeichenkette aus Ziffern-Nibbles, linke Ziffer zuerst */
-    char disp[CFG_MAX_DISPLAYS * (CFG_MAX_DISP_W + 4) + 4] = "";
+    /* Displays als Zeichenkette aus Ziffern-Nibbles, linke Ziffer zuerst; ASCII-Displays
+     * (Typ 5/6) als Text, ein Zeichen je Byte. Die Oberflaeche unterscheidet ueber dt. */
+    char disp[DISP_JSON_LEN] = "";
     size_t dp = 0;
     for (int i = 0; i < ci->displays; i++) {
-        char d[CFG_MAX_DISP_W + 2];
+        char d[2 * CFG_MAX_DISP_W + 2];
         int w = ci->disp_width[i];
-        bitmap_to_hex(p, (w + 1) / 2, d);
-        p += (w + 1) / 2;
-        d[w] = '\0';
+        if (FA_DISP_IS_ASCII(ci->disp_type[i])) {
+            uint8_t t[CFG_MAX_DISP_W];
+            memcpy(t, p, w);
+            for (int k = 0; k < w; k++) {
+                if (t[k] == 0) {
+                    t[k] = ' ';   /* sonst endete der Text am ersten NUL */
+                }
+            }
+            text_to_json(t, w, d);
+            p += w;
+        } else {
+            bitmap_to_hex(p, (w + 1) / 2, d);
+            p += (w + 1) / 2;
+            d[w] = '\0';
+        }
         dp += snprintf(disp + dp, sizeof(disp) - dp, "%s\"%s\"", i ? "," : "", d);
     }
 
-    char buf[448];
+    char buf[128 + LISY_LAMP_BITMAP_LEN * 2 + 4 * 16 + LISY_SWITCH_BITMAP_LEN * 2 + DISP_JSON_LEN];
     snprintf(buf, sizeof(buf),
              "{\"ok\":1,\"flags\":%u,\"lamps\":\"%s\",\"coils\":\"%s\",\"coilsx\":\"%s\","
              "\"snd\":%u,\"sw\":\"%s\",\"disp\":[%s]}",

@@ -224,7 +224,7 @@ the inventory alone (`fa_connect_monitor_len()`), bit 0 of each byte is the lowe
 | coils **seen since the last read** | ⌈coils/8⌉ | 1 |
 | sound lines seen since the last read — meaning per device, GottFA1: bit 0/1/2 = 10/100/1000 | 1 | 1 |
 | switches, numbered like `0x28` | ⌈switches/8⌉ | 10 |
-| displays in order 0..n, two BCD digits per byte, left digit in the high nibble, `≥ 0xA` = dark | Σ⌈digits/2⌉ | 14 |
+| displays in order 0..n, two BCD digits per byte, left digit in the high nibble, `≥ 0xA` = dark; **ASCII displays (type 5/6): one character per byte**, left character first | Σ⌈digits/2⌉ (ASCII: Σ digits) | 14 |
 
 Coil and sound pulses last milliseconds while the browser asks every 500 ms (half the traffic of the
 first 250 ms; the dropouts seen then were caused by the v7 antenna, see § 9). The FPGA therefore
@@ -238,6 +238,19 @@ GottFA1_PLuS (board v7, `N:\Projekte\FPGA System1\FPGA_source\top\SYS1.vhd`) and
 (`N:\Projekte\FPGA Stern\FPGA_source\top\SternFA.vhd`, 36 bytes: 60 lamps, 19 coils, 40 switches,
 5 displays of 6 digits; sound byte always 0). SternFA has no internal lamp or coil matrix, so it
 decodes the PIA pins back (Bally -35 / PinMAME by35.c).
+
+**Alphanumeric displays (since v1.28).** Opcode `0x07` returns the LISY display type together with
+the width; FA_Control keeps it per display (`disp_type[]`, `/api/config` → `dt`). Types 5 (ASCII) and
+6 (ASCII with comma) are sent as raw characters, left aligned, padded with blanks, in upper case.
+Control characters become blanks, because `0x01` is a command prefix for the Rockwell 10941 of
+Gottlieb System 80B. In the `0x6E` snapshot they take one byte per position. Every other type is
+treated as BCD7, as before. `CFG_MAX_DISP_W` went from 16 to 20.
+First counterpart: **GottFA80 PLuS board v7.1** (`N:\Projekte\FPGA System80\FPGA_source`). For a
+System 80B game (game selection 40..61) it reports **two displays of 20 characters, type 5**,
+otherwise the five BCD displays. The layout depends on the game DIPs and is read at every connect;
+the monitor snapshot there is 62 bytes for 80B and 40 otherwise. On the FPGA side `fa_control.vhd`
+got a second, switchable display layout (generics `ALT_*`, ports `disp_alt`, `disp_txt`, `mon_len`).
+Without it, the module synthesises exactly as before.
 
 **Simulating switches (`0x6F`, 111, since v1.26).** One parameter: bit 6..0 switch number, bit 7 =
 close, 0 = release. No reply. The switch is ORed onto the returns the game reads, so it can only
@@ -262,7 +275,7 @@ Opcodes in [`main/lisy.h`](../main/lisy.h), maxima in
 | Coils | 127 | `0x17` pulse (**never continuous**), `0x18` pulse time |
 | Switches | 127 | `0x28` read all, `0x29` read changes — **read only**, the protocol has no way to set a switch |
 | Sound | 255 | `0x32` play (track 1), `0x33` stop |
-| Displays | 7 | `0x1E + index`, BCD7 encoded, right-aligned, blank = `0x0F` |
+| Displays | 7 | `0x1E + index`, BCD7 encoded, right-aligned, blank = `0x0F`; type 5/6 (ASCII, v1.28): raw characters, left-aligned, blank = space |
 
 **Coil numbers are 1-based on the wire** (`main/lisy.c`), every other category is 0-based.
 That is the LISY convention (`lisy_5_28/src/lisy/lisy_w.c`: "sol number starts with 1")
@@ -621,7 +634,7 @@ Query parameters only — there is no JSON parsing anywhere. Responses are built
 | `POST /api/disconnect` | release control resp. end monitor mode; replies like `GET /api/config` |
 | `POST /api/monitor` | start monitor mode (§ 4.2); replies like `GET /api/config` |
 | `POST /api/monsw?id=&on=` | monitor mode: close or release a simulated switch; `?all=0` releases all; `400` without flag bit 3 (§ 4.2) |
-| `GET /api/monitor` | one `0x6E` snapshot, split up: `{"ok":1,"flags":n,"lamps":"hex","coils":"hex","coilsx":"hex","snd":n,"sw":"hex","disp":["nibbles",…]}`; `{"ok":0}` on a bad reply, `400` outside monitor mode |
+| `GET /api/monitor` | one `0x6E` snapshot, split up: `{"ok":1,"flags":n,"lamps":"hex","coils":"hex","coilsx":"hex","snd":n,"sw":"hex","disp":["nibbles" or "text",…]}` (text for ASCII displays, v1.28); `{"ok":0}` on a bad reply, `400` outside monitor mode |
 | `POST /api/lamp?id=5&on=1` | lamp on/off |
 | `POST /api/coil?id=3` | pulse a coil |
 | `POST /api/sound?id=7&on=1` | play / stop sound |

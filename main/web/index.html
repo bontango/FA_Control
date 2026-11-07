@@ -175,6 +175,7 @@ section.act{display:block}
   body.mon #monitor:not(.nosnd) #mcoils{grid-column:1/4}
   body.mon #monitor #msound{order:6;grid-column:4/5}
   body.mon #mdisp{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.4rem}
+  body.mon #mdisp.alpha{grid-template-columns:repeat(2,minmax(0,1fr))}
   body.mon .disp{margin:0;padding:.25rem .4rem;gap:.1rem;flex-direction:column;align-items:flex-start;min-width:0}
   body.mon .disp label{width:auto;font-size:.6rem;white-space:nowrap;overflow:hidden;max-width:100%}
   body.mon #msimhint{margin:0 0 .25rem;padding-right:7.5rem;font-size:.6rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -202,6 +203,11 @@ section.act{display:block}
   font-family:ui-monospace,Consolas,monospace;
 }
 .seg .gh{color:var(--seg-gh)}
+/* Alphanumerische Zeile (LISY-Typ 5/6, GottFA80 80B): linksbuendig, aufrecht, Leerzeichen
+   bleiben stehen. Geisterzeichen gibt es dort nicht. */
+.seg.alpha{font-style:normal;letter-spacing:.06em;text-align:left;font-size:1.25rem}
+.seg.alpha .gh{white-space:pre}
+.seg.alpha .vl{text-align:left;letter-spacing:.06em;white-space:pre}
 .seg .vl{
   position:absolute;inset:.25rem .5rem;text-align:right;
   color:var(--cu-hi);text-shadow:0 0 8px rgba(190,131,96,.5);letter-spacing:.18em;
@@ -306,7 +312,7 @@ legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;f
     <button class="tile" data-s="coils" disabled><span class="no">02</span><span class="nm">COILS</span><span class="ds">FIRE PULSE · PULSE TIME</span></button>
     <button class="tile" data-s="switches" disabled><span class="no">03</span><span class="nm">SWITCHES</span><span class="ds">STATUS (READ ONLY)</span></button>
     <button class="tile" data-s="sounds" disabled><span class="no">04</span><span class="nm">SOUND</span><span class="ds">PLAY / STOP</span></button>
-    <button class="tile" data-s="disps" disabled><span class="no">05</span><span class="nm">DISPLAYS</span><span class="ds">7-SEGMENT DISPLAYS</span></button>
+    <button class="tile" data-s="disps" disabled><span class="no">05</span><span class="nm">DISPLAYS</span><span class="ds">DIGITS OR TEXT</span></button>
     <button class="tile" data-s="wifi"><span class="no">06</span><span class="nm">WI-FI</span><span class="ds">NETWORK · FIRMWARE</span></button>
     <button class="tile" data-s="names" id="t_names"><span class="no">07</span><span class="nm">NAMES</span><span class="ds">NAMING FILES · UPLOAD · LOAD</span></button>
     <button class="tile" data-s="roms" id="t_roms"><span class="no">08</span><span class="nm">GAME ROMS</span><span class="ds">BOOT WITHOUT SD CARD · UPLOAD · LOAD</span></button>
@@ -655,6 +661,12 @@ function loadNames(cb){
 /* Ohne Verbindung meldet der Server ueberall 0 — die Grids bleiben dann leer,
    ganz ohne Sonderfall. */
 function build(){loadNames(buildGrids)}
+/* LISY-Displaytyp 5/6 = ASCII (GottFA80 bei 80B-Spielen: zwei Zeilen zu 20 Zeichen).
+   Aeltere Firmware liefert kein dt -- dann BCD wie bisher. */
+function dispAscii(d){return !!(cfg.dt&&(cfg.dt[d]===5||cfg.dt[d]===6))}
+function segHtml(w,asc){
+  return asc?'<span class="seg alpha"><span class="gh">'+" ".repeat(w)+'</span><span class="vl"></span></span>'
+            :'<span class="seg"><span class="gh">'+"8".repeat(w)+'</span><span class="vl"></span></span>'}
 function buildGrids(){
   mkgrid("#lamps",cfg.lamps,"◉",null,function(i,c){
     var on=!c.classList.contains("on");
@@ -674,16 +686,18 @@ function buildGrids(){
   /* Displays */
   var dl=$("#dlist");dl.innerHTML="";
   for(var d=0;d<cfg.displays;d++){(function(d){
-    var w=cfg.dw[d]||6;
+    var w=cfg.dw[d]||6,asc=dispAscii(d);
     var div=document.createElement("div");div.className="disp";
     var dn=NAMES.displays[d]?" "+esc(NAMES.displays[d].toUpperCase()):"";
-    div.innerHTML='<label>DISPLAY '+d+dn+' ('+w+' DIGITS)</label>'+
-      '<span class="seg"><span class="gh">'+"8".repeat(w)+'</span><span class="vl"></span></span>'+
-      '<input size="'+(w+2)+'" maxlength="'+w+'" pattern="[0-9 ]*" inputmode="numeric">'+
+    div.innerHTML='<label>DISPLAY '+d+dn+' ('+w+(asc?' CHARACTERS':' DIGITS')+')</label>'+
+      segHtml(w,asc)+
+      (asc?'<input size="'+(w+2)+'" maxlength="'+w+'" style="text-transform:uppercase">'
+          :'<input size="'+(w+2)+'" maxlength="'+w+'" pattern="[0-9 ]*" inputmode="numeric">')+
       '<button class="btn">SEND</button>';
     var inp=div.querySelector("input"),vl=div.querySelector(".vl");
     var send=function(){
-      var v=inp.value.replace(/[^0-9 ]/g,"");
+      var v=asc?inp.value.toUpperCase().replace(/[^\x20-\x7e]/g," ")
+               :inp.value.replace(/[^0-9 ]/g,"");
       api("/api/display?id="+d+"&text="+encodeURIComponent(v),function(){
         vl.textContent=v;toast("DISPLAY "+d+" SENT")})};
     div.querySelector(".btn").onclick=send;
@@ -742,7 +756,8 @@ function applyConn(){
 function refreshConn(){
   getj("/api/config",function(c){
     var rebuild=!cfg||c.conn!==cfg.conn||c.lamps!==cfg.lamps||c.coils!==cfg.coils||
-      c.switches!==cfg.switches||c.sounds!==cfg.sounds||c.displays!==cfg.displays;
+      c.switches!==cfg.switches||c.sounds!==cfg.sounds||c.displays!==cfg.displays||
+      String(c.dt)!==String(cfg.dt);
     cfg=c;
     if(rebuild)build();else applyConn();
   })}
@@ -801,12 +816,12 @@ function monBuild(){
     var c=document.createElement("button");c.className="cell ro";
     c.innerHTML="<i>♪</i><b>"+n+"</b>";g.appendChild(c)});
   var dl=$("#mdisp");dl.innerHTML="";
+  dl.classList.toggle("alpha",cfg.displays>0&&dispAscii(0));   /* 2 breite Textzeilen */
   for(var d=0;d<cfg.displays;d++){
     var w=cfg.dw[d]||6;
     var div=document.createElement("div");div.className="disp";
     var dn=NAMES.displays[d]?" "+esc(NAMES.displays[d].toUpperCase()):"";
-    div.innerHTML='<label>DISPLAY '+d+dn+'</label>'+
-      '<span class="seg"><span class="gh">'+"8".repeat(w)+'</span><span class="vl"></span></span>';
+    div.innerHTML='<label>DISPLAY '+d+dn+'</label>'+segHtml(w,dispAscii(d));
     dl.appendChild(div)}
   monCoilT=[];monSndT=[];
 }
@@ -854,6 +869,7 @@ function monApply(m){
   var vls=document.querySelectorAll("#mdisp .vl");
   m.disp.forEach(function(s,d){
     if(!vls[d])return;
+    if(dispAscii(d)){vls[d].textContent=s;return}   /* Text, ein Zeichen je Stelle */
     var t="";
     for(var k=0;k<s.length;k++){var v=parseInt(s.charAt(k),16);t+=v<10?v:" "}
     vls[d].textContent=t})}

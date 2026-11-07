@@ -10,7 +10,8 @@
 #define CFG_MAX_SWITCHES 127
 #define CFG_MAX_SOUNDS   255
 #define CFG_MAX_DISPLAYS 7
-#define CFG_MAX_DISP_W   16   /* max. Stellen pro Display (UI-Begrenzung) */
+#define CFG_MAX_DISP_W   20   /* max. Stellen pro Display (UI-Begrenzung); 20 seit 1.28
+                                 fuer die alphanumerischen Zeilen von GottFA80 (80B) */
 
 /* Kennung und Version des NVS-Blobs.
  * Vorher pruefte app_config_load() nur die Groesse. Wird das Struct erweitert und

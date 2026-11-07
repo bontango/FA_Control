@@ -69,8 +69,10 @@ void lisy_coil_apply_pulse_time(uint8_t count, uint8_t ms);
 void lisy_sound_play(uint8_t track, uint8_t idx);
 void lisy_sound_stop(uint8_t track);
 
-/* Displays: Text wird BCD7-kodiert, rechtsbuendig, blank = 0x0F */
-void lisy_display_set(uint8_t d, const char *text, uint8_t width);
+/* Displays: Text wird BCD7-kodiert, rechtsbuendig, blank = 0x0F. Bei ascii (LISY-Typ
+ * 5/6, z.B. GottFA80 80B) geht er roh als ASCII, linksbuendig, mit Blanks aufgefuellt,
+ * Kleinbuchstaben als Grossbuchstaben (die 80B-Anzeige kennt nur die). */
+void lisy_display_set(uint8_t d, const char *text, uint8_t width, bool ascii);
 
 /* Schalter: Cache per 0x28 fuellen, per 0x29 aktualisieren */
 void lisy_switches_refresh_all(uint8_t count);

@@ -80,6 +80,7 @@ static void query_counts(void)
             if (lisy_get_2bytes(LISY_CMD_G_DISP_DETAIL, (uint8_t)i, &type, &digits) == 0) {
                 if (type != 0 && digits > 0 && digits <= CFG_MAX_DISP_W) {
                     s_info.disp_width[i] = digits;
+                    s_info.disp_type[i] = type;
                 }
             }
         }
@@ -145,13 +146,15 @@ esp_err_t fa_connect_run(void)
 
 /* Layout des 0x6E-Abzugs (fa_control.vhd, Kopf "MONITOR", und die Belegung im
  * Top-Level): Flags, Lampen, Spulen jetzt, Spulen gemerkt, Sound gemerkt,
- * Schalter, Displays mit zwei BCD-Ziffern je Byte. Die Laenge folgt allein aus der
- * Bestueckung -- passt sie nicht, ist das Layout ein anderes. */
+ * Schalter, Displays mit zwei BCD-Ziffern je Byte (ASCII-Displays: ein Zeichen je
+ * Byte). Die Laenge folgt allein aus der Bestueckung -- passt sie nicht, ist das
+ * Layout ein anderes. */
 int fa_connect_monitor_len(const fa_conn_info_t *ci)
 {
     int n = 1 + (ci->lamps + 7) / 8 + 2 * ((ci->coils + 7) / 8) + 1 + (ci->switches + 7) / 8;
     for (int i = 0; i < ci->displays; i++) {
-        n += (ci->disp_width[i] + 1) / 2;
+        n += FA_DISP_IS_ASCII(ci->disp_type[i]) ? ci->disp_width[i]
+                                                : (ci->disp_width[i] + 1) / 2;
     }
     return n;
 }

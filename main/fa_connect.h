@@ -55,6 +55,7 @@ typedef struct {
     uint8_t sounds;        /* Opcode 5 -- 0 ist gueltig ("kann keinen Ton") */
     uint8_t displays;      /* Opcode 6 */
     uint8_t disp_width[CFG_MAX_DISPLAYS];  /* Opcode 7, Stellen je Display */
+    uint8_t disp_type[CFG_MAX_DISPLAYS];   /* Opcode 7, LISY-Typ (1 = BCD7, 5 = ASCII) */
     int  last_code;        /* roher Rueckgabewert von 0x64, fuer die Fehlersuche */
 } fa_conn_info_t;
 
@@ -69,6 +70,10 @@ void fa_connect_release(void);
  * Kontrolle anzufordern. Eine aktive Kontrolle wird vorher zurueckgegeben (das Spiel
  * startet dann neu). Immer ESP_OK -- das Ergebnis steht in fa_connect_info(). */
 esp_err_t fa_connect_monitor(void);
+
+/* LISY-Displaytypen 5 (ASCII) und 6 (ASCII mit Komma): ein Byte je Stelle, Text statt
+ * Ziffern. Alle anderen behandelt FA_Control wie BCD7. */
+#define FA_DISP_IS_ASCII(t) ((t) == 5 || (t) == 6)
 
 /* Laenge, die ein 0x6E-Abzug bei der gemeldeten Bestueckung haben muss. */
 int fa_connect_monitor_len(const fa_conn_info_t *ci);
