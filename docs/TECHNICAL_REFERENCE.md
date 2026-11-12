@@ -750,7 +750,13 @@ has to be visible.
 
 `parseNames()` reads the active naming file and `mkgrid()` puts the name under the number
 on each tile; the grid switches to the wider `.named` layout. **The number stays the
-leading label** — it is what goes over the wire. Names are inserted with `textContent`
+leading label** — it is what goes over the wire. One exception: switch tiles on hardware
+listed in `SW_LABEL` (keyed on `cfg.hw`, like `MON_SND`) carry the game's self-test number
+instead, and the tooltip adds the wire number (`41 (wire 56)`). AtariFA is the only entry:
+the wire number is the CPU offset `addr − 0x2000`, the 16 programming-DIP strobes
+`$2000–$200F` come first, and the self test counts from `$2010` = 1, so the label is
+wire − 15 and `D0`…`D15` below that. Only the label changes: `onclick`, `/api/monsw` and
+the naming-file keys stay wire numbers. Names are inserted with `textContent`
 (or through `esc()` where `innerHTML` is unavoidable), because they come from an uploaded
 file. Without a file everything looks exactly as before.
 

@@ -550,6 +550,13 @@ switches and sounds start at 0</strong> — the same numbering the tiles
 use. Lines starting with <code>#</code> are comments. You only need the
 entries you care about; everything else stays numeric. Maximum 32 kB per
 file.</p>
+<p><strong>Exception — switches on AtariFA:</strong> the switch tiles show
+the number the game's own self test uses, so you can compare them
+directly. The first 16 positions are the programming DIP switches (and
+the test switch); they have no self-test number and appear as
+<strong>D0</strong> to <strong>D15</strong>. Hover over a tile to see its
+wire number as well, e.g. <em>41 (wire 56)</em>. The naming file keeps
+the wire number: self-test number + 15.</p>
 <blockquote>
 <p>If tile 07 is missing entirely, your device has no storage for naming
 files. That happens when it was only ever updated over the air: the

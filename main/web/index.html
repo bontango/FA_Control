@@ -605,26 +605,42 @@ document.querySelectorAll(".back").forEach(function(b){
    base = Nummer der ersten Kachel. Spulen zaehlen ab 1 (LISY zaehlt sie so, und es
    sind die Treiber Q1..Q20 des Schaltplans), Lampen/Schalter/Sounds ab 0. Die Zahl
    auf der Kachel IST die Nummer, die auch ueber die Leitung geht — nicht bloss ein
-   Anzeige-Offset.
+   Anzeige-Offset. Einzige Ausnahme: Schalter auf Hardware mit Eintrag in
+   SW_LABEL (s. u.) -- dort steht die Nummer des Spiel-Selbsttests darauf, im
+   Tooltip zusaetzlich die Leitungsnummer.
    map = Nummer -> sprechender Name aus der Namensdatei, oder null. Die Nummer
-   bleibt in jedem Fall die fuehrende Beschriftung; der Name kommt darunter. */
-function mkgrid(sel,n,icon,cls,onclick,base,map){
+   bleibt in jedem Fall die fuehrende Beschriftung; der Name kommt darunter.
+   label = optionale Funktion Leitungsnummer -> Beschriftung. onclick und map
+   bekommen weiterhin die Leitungsnummer. */
+function mkgrid(sel,n,icon,cls,onclick,base,map,label){
   var g=$(sel+" .grid");g.innerHTML="";var b=base||0;
   var named=false;for(var k in (map||{})){named=true;break}
   g.classList.toggle("named",named);
   for(var i=0;i<n;i++){(function(no){
     var c=document.createElement("button");
     c.className="cell"+(cls?" "+cls:"");
-    c.innerHTML="<i>"+icon+"</i><b>"+no+"</b>";
+    var lb=label?label(no):String(no);
+    var tt=lb===String(no)?lb:lb+" (wire "+no+")";
+    c.innerHTML="<i>"+icon+"</i><b>"+lb+"</b>";
+    if(tt!==lb)c.title=tt;
     var nm=map?map[no]:null;
     if(nm){
       /* textContent, nicht innerHTML: der Text kommt aus einer hochgeladenen
          Datei und darf nicht als Markup gedeutet werden. */
       var em=document.createElement("em");em.textContent=nm;
-      c.appendChild(em);c.title=no+" — "+nm}
+      c.appendChild(em);c.title=tt+" — "+nm}
     if(onclick)c.onclick=function(){onclick(no,c)};
     g.appendChild(c)})(i+b)}
 }
+
+/* Anzeige-Nummer der Schalter je Hardware (Schluessel cfg.hw, wie MON_SND).
+   Nur die Beschriftung; Leitung, API und Namensdatei-Schluessel bleiben die
+   Leitungsnummer. AtariFA: Leitungsnummer = CPU-Offset (Adresse - 0x2000), vorn
+   liegen die 16 Prog-DIP-Strobes $2000-$200F (darunter der Testschalter auf 11).
+   Der Selbsttest zaehlt erst ab $2010 = 1, also Selbsttest = Leitung - 15;
+   die DIP-Kacheln heissen D0..D15. */
+var SW_LABEL={AtariFA:function(n){return n<16?"D"+n:String(n-15)}};
+function swLabel(n){var f=cfg&&SW_LABEL[cfg.hw];return f?f(n):String(n)}
 
 /* ---- Namensdateien ----
    Der ESP liefert die gewaehlte Datei unveraendert aus und parst sie nicht --
@@ -676,7 +692,7 @@ function buildGrids(){
     api("/api/coil?id="+i,function(){
       c.classList.remove("fire");void c.offsetWidth;c.classList.add("fire")})},
     1,NAMES.coils);
-  mkgrid("#switches",cfg.switches,"▣","sw",null,0,NAMES.switches);
+  mkgrid("#switches",cfg.switches,"▣","sw",null,0,NAMES.switches,swLabel);
   mkgrid("#sounds",cfg.sounds,"♪",null,function(i,c){
     var on=!c.classList.contains("on");
     api("/api/sound?id="+i+"&on="+(on?1:0),function(){
@@ -810,7 +826,7 @@ function monSndNames(){return MON_SND[cfg.hw]||["0","1","2","3","4","5","6","7"]
 function monBuild(){
   mkgrid("#mlamps",cfg.lamps,"◉","ro",null,0,NAMES.lamps);
   mkgrid("#mcoils",cfg.coils,"⚡","ro",null,1,NAMES.coils);
-  mkgrid("#mswitches",cfg.switches,"▣","sw",monSwClick,0,NAMES.switches);
+  mkgrid("#mswitches",cfg.switches,"▣","sw",monSwClick,0,NAMES.switches,swLabel);
   var g=$("#msound .grid");g.innerHTML="";g.classList.remove("named");
   monSndNames().forEach(function(n){
     var c=document.createElement("button");c.className="cell ro";
