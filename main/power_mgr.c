@@ -94,13 +94,15 @@ static void enter_deep_sleep(void)
      * floaten; GPIO10 haenge dann allein am Weak-Pull-Up des FPGA, und GPIO8
      * koennte die LED schwach gluehen lassen. Der ESP32-C3 kann digitale Pads im
      * Tiefschlaf halten (SOC_GPIO_SUPPORT_HOLD_IO_IN_DSLP). */
+#ifdef BOARD_PIN_CTRL_REQ
     hold_pin(BOARD_PIN_CTRL_REQ);
+#endif
     if (s_led_enabled) {
         hold_pin(BOARD_PIN_LED);
     }
     gpio_deep_sleep_hold_en();
 
-#if CONFIG_FA_BOARD_PIGGYBACK_V7
+#if CONFIG_FA_BOARD_PIGGYBACK_V7 || CONFIG_FA_BOARD_JTAG_PIGGYBACK
     /* Unerreichbar: ohne DIP-Bank meldet board_dip_read() immer "wach". GPIO0
      * ist hier DCLK und darf niemanden wecken. */
     abort();

@@ -1,8 +1,12 @@
 set(srcs "repo.c" "board.c" "main.c" "app_config.c" "lisy.c" "fa_connect.c" "power_mgr.c" "wifi_mgr.c" "web_server.c" "fw_update.c" "names.c" "rom_boot.c")
 
-# FPGA-Programmierung gibt es nur auf dem EP4CE6 dev board v7 (Kconfig.projbuild).
+# EPCS-Programmierung per AS nur auf dem EP4CE6 dev board v7, JTAG zusaetzlich auf dem
+# JTAG-Piggyback an P5 (Kconfig.projbuild: FA_FPGA_JTAG).
+if(CONFIG_FA_FPGA_JTAG)
+    list(APPEND srcs "fpga_jtag.c")
+endif()
 if(CONFIG_FA_BOARD_PIGGYBACK_V7)
-    list(APPEND srcs "fpga_prog.c" "fpga_jtag.c")
+    list(APPEND srcs "fpga_prog.c")
 endif()
 
 idf_component_register(
@@ -35,8 +39,9 @@ target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/web/logo.pn
 
 # Board v7/v7.1: JTAG-Datenstrom des Leer-Designs as_release, zlib-gepackt
 # (EP4CE6 ~4 kB, EP4CE22 ~7 kB). Erzeugt von fpga/as_release/make_jtag_blob.py,
-# entpackt beim Schieben (fpga_jtag.c waehlt per IDCODE).
-if(CONFIG_FA_BOARD_PIGGYBACK_V7)
+# entpackt beim Schieben (fpga_jtag.c waehlt per IDCODE). Auch auf dem JTAG-Piggyback,
+# weil fpga_jtag.c sie referenziert.
+if(CONFIG_FA_FPGA_JTAG)
     target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/blob/as_release.jtag.z" BINARY)
     target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/blob/as_release_e22.jtag.z" BINARY)
 endif()

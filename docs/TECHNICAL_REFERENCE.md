@@ -1144,3 +1144,49 @@ file `FA_Control_v7_v<version>.bin` and uploads it to `SFTP_PATH_V7` (`…/FA_Co
 `fw_update.c` takes its folder from the variant. A device never sees the other variant's
 images, and devices with older firmware do not know the new folder at all. There is no
 browser installer package for v7 yet. The first installation is `idf.py … flash` over USB.
+
+## 15. Board variant JTAG piggyback — Virtual JTAG (experimental, since 17.11.2026)
+
+The third variant, `FA_BOARD_JTAG_PIGGYBACK`, runs on the Supermini of the
+`ESP32_jtag_piggyback` v1.00. That board plugs into the 10-pin JTAG header **P5** of the FPGA
+boards v3 / v4.x by ribbon cable. JTAG is the only link to the FPGA, so LISY will later run
+over a `sld_virtual_jtag` node in the FPGA design instead of a UART. Concept, stage plan and
+measurements: `N:\Projekte\misc\USB_BLASTER_DIY\ESP32-C3_EVALUIERUNG.md` §15.
+
+Status: stage 2 of 4. The ESP finds the SLD hub, selects the virtual IR and exchanges data
+with the test node `vjtag_probe` (GottFA80 variant `smd_hw11_cyclone_iv_v4_vj`). The LISY
+transport (stage 4) is not there yet: UART1 is installed without pins, the FA tiles have no
+counterpart.
+
+```powershell
+idf.py -B C:\Users\bonta\esp\build\fa_jtag -D SDKCONFIG=C:\Users\bonta\esp\build\fa_jtag\sdkconfig `
+       -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.jtag" build
+```
+
+| | Socket variant | JTAG piggyback |
+|---|---|---|
+| GPIO | LISY 7/6, control request 10 | TCK 6 (pull-down), TMS 10, TDI 7, TDO 5, Vtarget ADC 4; all high-impedance outside a JTAG session |
+| LISY, control request | UART1, GPIO10 | none yet (stage 4: over Virtual JTAG) |
+| DIP bank, deep sleep | DIP1 = on/off | none, always awake |
+| Console | UART0 + USB-Serial-JTAG | unchanged (GPIO20/21 are free) |
+| OTA folder | `…/FA_Control/bin/` | `…/FA_Control/bin_jtag/` (does not exist yet) |
+
+`CONFIG_FA_FPGA_JTAG` (hidden, set for v7 and this variant) builds `fpga_jtag.c`. A mutex
+there serialises every TAP access. New in `fpga_jtag.c`: `fpga_vjtag_probe()` reads
+`HUB_INFO`/`NODE_INFO` (USER1 = 0x00E, USER0 = 0x00C). It takes the VIR width *n* from
+`HUB_INFO` — the hub reports n = 4 although the node is built with `sld_ir_width = 2`.
+`fpga_vjtag_test()` reads the node ID and runs the 32-bit echo. `main.c` probes the hub once at boot and logs the
+result.
+
+**Hardware rule:** piggyback v1.00 has no jumper in the 3.3 V line. USB-C and the ribbon cable
+must never be connected at the same time. Flash over USB with the cable unplugged, then unplug
+USB and connect the cable; the board powers the Supermini.
+
+### 15.1 API
+
+| Endpoint | Function |
+|---|---|
+| `GET /api/vjtag[?n=1000]` | hub enumeration plus test: `idcode`, `hub_info`, `nodes`, `m`, `n`, `addr`, `node_info[]`, `id`, `echo_total`, `echo_ok`, `fail_out`, `fail_in`, `echo_us`, `bytes_per_s`, `session_us`, `ok`. `n` = echo scans, 1…100 000 |
+
+Measured on board v4.x (17.11.2026): 2 × 100 000 scans without error, 18.6 µs per 32-bit scan
+= 215 kB/s of payload, one complete session (open, select VIR, 32 bits, close) 0.1 ms.

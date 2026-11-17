@@ -17,6 +17,44 @@
  *    (siehe BOARD_STATUS_ACTIVE_LEVEL).
  */
 
+#if CONFIG_FA_BOARD_JTAG_PIGGYBACK
+
+/* ========================================================================== *
+ * JTAG-Piggyback an P5 (ESP32_jtag_piggyback v1.00, Flachbandkabel zum
+ * 10-poligen JTAG-Header). Massgeblich: N:\Projekte\misc\USB_BLASTER_DIY\
+ * ESP32-C3_EVALUIERUNG.md Abschnitt 14.9/14.10 (Platine) und 15 (vJTAG).
+ *     P1-1 TCK <- GPIO6  (33 Ohm)      P1-5 TMS <- GPIO10 (33 Ohm)
+ *     P1-9 TDI <- GPIO7  (33 Ohm)      P1-3 TDO -> GPIO5  (100 Ohm)
+ *     P1-4 3,3 V vom Zielboard = Versorgung, Teiler 1:2 auf GPIO4 (ADC)
+ *
+ * Kein LISY-UART und kein CTRL_REQ: beides kommt ueber Virtual JTAG (spaeter).
+ * Deshalb sind BOARD_PIN_LISY_* und BOARD_PIN_CTRL_REQ hier NICHT definiert --
+ * GPIO6/7/10 sind TCK/TDI/TMS. lisy.c installiert den UART ohne Pins.
+ *
+ * Keine Strapping-Pins (2/8/9) auf den JTAG-Leitungen: der ESP bootet
+ * unabhaengig vom FPGA. LED (8) und BOOT-Taster (9) wie auf dem Supermini.
+ * TMS bleibt nach dem ersten Zugriff dauerhaft high getrieben (TAP bleibt im
+ * Test-Logic-Reset); TCK bekommt im Ruhezustand den internen Pull-down, weil
+ * das Board v4.x dort keinen eigenen hat.
+ * ========================================================================== */
+
+#define BOARD_PIN_JTAG_TCK     6
+#define BOARD_PIN_JTAG_TMS    10
+#define BOARD_PIN_JTAG_TDI     7
+#define BOARD_PIN_JTAG_TDO     5
+#define BOARD_PIN_VTARGET      4   /* ADC1_CH4, Teiler 1:2 (noch unbenutzt) */
+#define BOARD_JTAG_TCK_PULLDOWN 1  /* interner Pull-down an TCK im Ruhezustand */
+
+#define BOARD_PIN_LED          8
+#define BOARD_LED_ACTIVE_LEVEL 0
+#define BOARD_PIN_BUTTON       9
+
+/* Keine DIP-Bank: board_dip_read() meldet fest "wach, LED an". */
+#define BOARD_DIP_ACTIVE      (1 << 0)
+#define BOARD_DIP_NO_LED      (1 << 1)
+
+#else /* Sockel und Board v7: LISY-UART und CTRL_REQ als eigene Leitungen */
+
 /* --- LISY UART1 ----------------------------------------------------------- */
 /* Korrigiert 08.2026: TX und RX waren vertauscht. Massgeblich ist der
  * AtariFA-Schaltplan (N:\Projekte\FPGA Atari\doc\AtariFA_07_Final_Main_SCH.PDF),
@@ -79,6 +117,7 @@
 #define BOARD_PIN_JTAG_TMS     8   /* = LED, R3 nach 3,3 V */
 #define BOARD_PIN_JTAG_TDI     9   /* = BOOT-Taster, R4 nach 3,3 V */
 #define BOARD_PIN_JTAG_TDO    21   /* ueber R11 100 Ohm */
+#define BOARD_JTAG_TMS_IS_LED  1   /* GPIO8: fpga_jtag sperrt die LED waehrend eines Zugriffs */
 
 /* --- Blaue Onboard-LED --------------------------------------------------- */
 /* Doppelt belegt mit TMS. Ohne TCK-Flanke passiert im TAP nichts, das Blinken
@@ -149,3 +188,5 @@
 #define BOARD_PIN_RESERVED    2
 
 #endif /* CONFIG_FA_BOARD_PIGGYBACK_V7 */
+
+#endif /* CONFIG_FA_BOARD_JTAG_PIGGYBACK */

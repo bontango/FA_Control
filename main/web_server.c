@@ -15,6 +15,9 @@
 #if CONFIG_FA_BOARD_PIGGYBACK_V7
 #include "fpga_prog.h"
 #endif
+#if CONFIG_FA_FPGA_JTAG
+#include "fpga_jtag.h"
+#endif
 #include "lisy.h"
 #include "names.h"
 #include "repo.h"
@@ -1091,6 +1094,63 @@ static esp_err_t fpgaup_post_handler(httpd_req_t *req)
 
 #endif /* CONFIG_FA_BOARD_PIGGYBACK_V7 */
 
+#if CONFIG_FA_FPGA_JTAG
+
+/* ---- API: Virtual JTAG (Stufe 2 von "FA-Control ueber JTAG") -------------- */
+
+/* GET /api/vjtag[?n=1000] -- Hub abfragen; findet sich ein Virtual-JTAG-Knoten,
+ * den Testknoten pruefen (Kennung, n Rueckkanal-Scans, Zeiten). Nur lesend fuer
+ * das Spiel: der Knoten vjtag_probe haengt an nichts. Auf einem Design ohne Hub
+ * passiert am TAP nichts ausser USER0/USER1 ins Leere. */
+static esp_err_t vjtag_get_handler(httpd_req_t *req)
+{
+    int count = get_param_int(req, "n", 1000);
+    if (count < 1) {
+        count = 1;
+    } else if (count > 100000) {
+        count = 100000;
+    }
+
+    fpga_vjtag_hub_t hub;
+    esp_err_t perr = fpga_vjtag_probe(&hub);
+
+    char buf[768];
+    int len = snprintf(buf, sizeof(buf),
+                       "{\"idcode\":\"0x%08lX\",\"hub_info\":\"0x%08lX\",\"nodes\":%d,"
+                       "\"m\":%d,\"n\":%d,\"addr\":%d,\"node_info\":[",
+                       (unsigned long)hub.idcode, (unsigned long)hub.hub_info,
+                       hub.nodes, hub.m, hub.n, hub.addr);
+    for (int k = 0; k < hub.nodes && k < FPGA_VJTAG_MAX_NODES && len < (int)sizeof(buf); k++) {
+        len += snprintf(buf + len, sizeof(buf) - len, "%s\"0x%08lX\"",
+                        k ? "," : "", (unsigned long)hub.node_info[k]);
+    }
+    if (len < (int)sizeof(buf)) {
+        len += snprintf(buf + len, sizeof(buf) - len, "]");
+    }
+
+    if (perr == ESP_OK && len < (int)sizeof(buf)) {
+        fpga_vjtag_test_t t;
+        esp_err_t terr = fpga_vjtag_test(&hub, count, &t);
+        /* Nutzdaten je Sekunde: 4 Byte je Rueckkanal-Scan */
+        long long bps = t.echo_us > 0 ? (long long)t.echo_total * 4 * 1000000 / t.echo_us : 0;
+        len += snprintf(buf + len, sizeof(buf) - len,
+                        ",\"id\":\"0x%08lX\",\"echo_total\":%d,\"echo_ok\":%d,"
+                        "\"fail_out\":\"0x%08lX\",\"fail_in\":\"0x%08lX\","
+                        "\"echo_us\":%lld,\"bytes_per_s\":%lld,\"session_us\":%lld,\"ok\":%d}",
+                        (unsigned long)t.id, t.echo_total, t.echo_ok,
+                        (unsigned long)t.fail_out, (unsigned long)t.fail_in,
+                        (long long)t.echo_us, bps, (long long)t.session_us,
+                        terr == ESP_OK ? 1 : 0);
+    } else if (len < (int)sizeof(buf)) {
+        len += snprintf(buf + len, sizeof(buf) - len, ",\"ok\":0,\"err\":\"%s\"}",
+                        esp_err_to_name(perr));
+    }
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, buf);
+}
+
+#endif /* CONFIG_FA_FPGA_JTAG */
+
 /* ---- Start --------------------------------------------------------------- */
 
 esp_err_t web_server_start(void)
@@ -1100,7 +1160,7 @@ esp_err_t web_server_start(void)
     /* Muss >= Anzahl der Eintraege in uris[] sein, sonst werden die letzten
      * stillschweigend nicht registriert und laufen in den Captive-Portal-
      * Fallback. Beim Hinzufuegen eines Endpunkts hier mitzaehlen. */
-    cfg.max_uri_handlers = 40;   /* v1.26: 32 Eintraege, bei v7 37 */
+    cfg.max_uri_handlers = 40;   /* v1.26: 32 Eintraege, bei v7 37, mit /api/vjtag 38 */
     cfg.lru_purge_enable = true;
     /* TLS-Client (fwlist via mbedTLS) laeuft im httpd-Task -> mehr Stack noetig */
     cfg.stack_size = 10240;
@@ -1148,6 +1208,9 @@ esp_err_t web_server_start(void)
         { .uri = "/api/fpgadump",   .method = HTTP_GET,  .handler = fpgadump_get_handler },
         { .uri = "/api/fpgadiag",   .method = HTTP_GET,  .handler = fpgadiag_get_handler },
         { .uri = "/api/fpgaup",     .method = HTTP_POST, .handler = fpgaup_post_handler },
+#endif
+#if CONFIG_FA_FPGA_JTAG
+        { .uri = "/api/vjtag",      .method = HTTP_GET,  .handler = vjtag_get_handler },
 #endif
         { .uri = "/logo.png",    .method = HTTP_GET,  .handler = logo_get_handler },
         /* Der Wildcard-Eintrag faengt alles Uebrige und muss zuletzt stehen. */

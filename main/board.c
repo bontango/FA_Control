@@ -7,6 +7,49 @@
 
 static const char *TAG = "board";
 
+#if CONFIG_FA_BOARD_JTAG_PIGGYBACK
+
+/* JTAG-Leitungen zum Header P5: im Ruhezustand Eingaenge. TMS/TDI haben auf den
+ * Zielboards Pull-ups (v4.x: R5/R8), TCK hat dort keinen Pull-down -- den gibt
+ * der ESP intern (BOARD_JTAG_TCK_PULLDOWN, fpga_jtag.c tap_close()). */
+
+void board_init(void)
+{
+    gpio_hold_dis(BOARD_PIN_LED);
+    gpio_deep_sleep_hold_dis();
+
+    gpio_config_t jtag_cfg = {
+        .pin_bit_mask = (1ULL << BOARD_PIN_JTAG_TMS) | (1ULL << BOARD_PIN_JTAG_TDI) |
+                        (1ULL << BOARD_PIN_JTAG_TDO),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&jtag_cfg));
+    gpio_config_t tck_cfg = {
+        .pin_bit_mask = 1ULL << BOARD_PIN_JTAG_TCK,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&tck_cfg));
+    gpio_config_t btn_cfg = {
+        .pin_bit_mask = 1ULL << BOARD_PIN_BUTTON,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&btn_cfg));
+    ESP_LOGI(TAG, "JTAG-Piggyback: TCK=GPIO%d TMS=GPIO%d TDI=GPIO%d TDO=GPIO%d hochohmig, "
+                  "kein LISY-UART/CTRL_REQ (ohne DIP-Bank: immer wach)",
+             BOARD_PIN_JTAG_TCK, BOARD_PIN_JTAG_TMS, BOARD_PIN_JTAG_TDI, BOARD_PIN_JTAG_TDO);
+}
+
+#else
+
 #if CONFIG_FA_BOARD_PIGGYBACK_V7
 
 /* Programmierleitungen zum FPGA: im Ruhezustand Eingaenge OHNE internen Pull.
@@ -97,6 +140,8 @@ void board_init(void)
 #endif
 }
 
+#endif /* CONFIG_FA_BOARD_JTAG_PIGGYBACK */
+
 /* ---- Blaue Onboard-LED (GPIO8, active low) ------------------------------- */
 
 void board_led_init(void)
@@ -137,12 +182,31 @@ void board_led_lock(bool locked)
 
 void board_ctrl_request(bool active)
 {
+#if CONFIG_FA_BOARD_JTAG_PIGGYBACK
+    /* Keine Leitung: kommt spaeter als Bit im Virtual-JTAG-Steuerregister. */
+    ESP_LOGW(TAG, "Uebernahme-Anforderung (%s): auf dem JTAG-Piggyback noch nicht moeglich",
+             active ? "setzen" : "zuruecknehmen");
+#else
     int level = active ? BOARD_CTRL_ACTIVE_LEVEL : !BOARD_CTRL_ACTIVE_LEVEL;
     gpio_set_level(BOARD_PIN_CTRL_REQ, level);
     ESP_LOGI(TAG, "Uebernahme-Anforderung %s", active ? "gesetzt" : "zurueckgenommen");
+#endif
 }
 
-#if CONFIG_FA_BOARD_PIGGYBACK_V7
+#if CONFIG_FA_BOARD_JTAG_PIGGYBACK
+
+bool board_button_pressed(void)
+{
+    return gpio_get_level(BOARD_PIN_BUTTON) == 0;
+}
+
+/* Keine Bank: immer wach, Blinkanzeige an. */
+uint8_t board_dip_read(void)
+{
+    return BOARD_DIP_ACTIVE;
+}
+
+#elif CONFIG_FA_BOARD_PIGGYBACK_V7
 
 /* GPIO9 ist TDI: der BOOT-Taster wird nicht ausgewertet. */
 bool board_button_pressed(void)

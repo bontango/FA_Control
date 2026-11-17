@@ -21,6 +21,9 @@ static const char *TAG = "fw_update";
  * seinen eigenen Ordner, alte Geraete kennen den neuen gar nicht. */
 #if CONFIG_FA_BOARD_PIGGYBACK_V7
 #define FW_BASE_URL   "https://lisy.dev/swrep/misc/FA_Control/bin_v7/"
+#elif CONFIG_FA_BOARD_JTAG_PIGGYBACK
+/* Noch kein Release dieser Variante -- der Ordner existiert nicht, die Liste bleibt leer. */
+#define FW_BASE_URL   "https://lisy.dev/swrep/misc/FA_Control/bin_jtag/"
 #else
 #define FW_BASE_URL   "https://lisy.dev/swrep/misc/FA_Control/bin/"
 #endif

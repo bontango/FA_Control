@@ -14,8 +14,13 @@
 static const char *TAG = "lisy";
 
 #define LISY_UART       UART_NUM_1
+#if CONFIG_FA_BOARD_JTAG_PIGGYBACK
+#define LISY_TX_GPIO    -1   /* keine Leitung, siehe lisy_init() */
+#define LISY_RX_GPIO    -1
+#else
 #define LISY_TX_GPIO    BOARD_PIN_LISY_TX
 #define LISY_RX_GPIO    BOARD_PIN_LISY_RX
+#endif
 #define LISY_BAUD       115200
 #define LISY_RX_BUF     256
 #define RESP_TIMEOUT_MS 100
@@ -147,8 +152,15 @@ esp_err_t lisy_init(void)
     };
     ESP_ERROR_CHECK(uart_driver_install(LISY_UART, LISY_RX_BUF, 0, 0, NULL, 0));
     ESP_ERROR_CHECK(uart_param_config(LISY_UART, &uc));
+#if CONFIG_FA_BOARD_JTAG_PIGGYBACK
+    /* JTAG-Piggyback: GPIO6/7 sind TCK/TDI. Der UART wird ohne Pins installiert
+     * (UART1 hat beim C3 keine festen IOMUX-Pins) -- alle Befehle laufen damit
+     * ohne Gegenstelle in den Timeout, bis LISY ueber Virtual JTAG kommt. */
+    ESP_LOGW(TAG, "JTAG-Piggyback: UART1 ohne Pins, LISY noch ohne Gegenstelle");
+#else
     ESP_ERROR_CHECK(uart_set_pin(LISY_UART, LISY_TX_GPIO, LISY_RX_GPIO,
                                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+#endif
 
     const esp_timer_create_args_t targs = {
         .callback = wd_timer_cb,

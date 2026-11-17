@@ -40,3 +40,54 @@ esp_err_t fpga_jtag_idcode(uint32_t *id);
  * ESP_ERR_INVALID_STATE, wenn CHECK_STATUS kein CONF_DONE meldet. Das laufende
  * Design (und damit das Spiel) ist danach weg. */
 esp_err_t fpga_jtag_load_release(void);
+
+/* Einmal beim Start: legt die Sperre an, die alle TAP-Zugriffe gegeneinander
+ * absichert (EPCS-Programmierung, Virtual JTAG, Diagnose). */
+void fpga_jtag_init(void);
+
+/* ---- Virtual JTAG (SLD-Hub), Stufe 2 von "FA-Control ueber JTAG" -------------
+ *
+ * Das FPGA-Design enthaelt eine sld_virtual_jtag-Instanz; Quartus fuegt dazu den
+ * SLD-Hub ein. Ablauf (am Board v4.x mit quartus_stp bestaetigt, 17.11.2026):
+ *   USER1 (0x00E) + 64 Nullen -> Hub selbst gewaehlt
+ *   USER0 (0x00C), 8 x 4-Bit-DR -> HUB_INFO, je Knoten 8 x 4 Bit -> NODE_INFO
+ *   Knoten waehlen: USER1-DR {Adresse (m Bit), VIR (n Bit)}, dann USER0-DR an ihn
+ * n kommt aus HUB_INFO und ist NICHT die sld_ir_width des Knotens (gemessen: 4
+ * statt 2). Konzept: N:\Projekte\misc\USB_BLASTER_DIY\ESP32-C3_EVALUIERUNG.md 15. */
+
+#define FPGA_VJTAG_MAX_NODES  8
+#define FPGA_VJTAG_NODE_VJTAG 0x08   /* Knoten-ID von sld_virtual_jtag */
+
+typedef struct {
+    uint32_t idcode;
+    uint32_t hub_info;                         /* roh */
+    int      nodes;                            /* N laut HUB_INFO */
+    int      m;                                /* Adressbreite ceil(log2(N+1)) */
+    int      n;                                /* VIR-Breite laut HUB_INFO */
+    uint32_t node_info[FPGA_VJTAG_MAX_NODES];  /* roh, Adresse k = Index k-1 */
+    int      addr;                             /* erster Knoten mit ID 0x08, 0 = keiner */
+} fpga_vjtag_hub_t;
+
+/* IDCODE lesen und den Hub abfragen. ESP_ERR_NOT_FOUND, wenn kein Hub antwortet
+ * (Hersteller in HUB_INFO nicht 0x06E: Design ohne Hub oder unkonfiguriert) oder
+ * kein Virtual-JTAG-Knoten dabei ist. hub ist auch dann gefuellt. */
+esp_err_t fpga_vjtag_probe(fpga_vjtag_hub_t *hub);
+
+/* Testknoten lib_common/vjtag_probe.vhd (GottFA80 smd_hw11_cyclone_iv_v4_vj):
+ * VIR 2 = Kennung, VIR 1 = 32-Bit-Rueckkanal. */
+#define FPGA_VJTAG_VIR_ECHO 1
+#define FPGA_VJTAG_VIR_ID   2
+
+typedef struct {
+    uint32_t id;            /* VIR 2 */
+    int      echo_total;    /* Anzahl gepruefter Rueckkanal-Scans */
+    int      echo_ok;
+    uint32_t fail_out;      /* erster Fehler: erwartet ... */
+    uint32_t fail_in;       /* ... gelesen */
+    int64_t  echo_us;       /* Dauer der Rueckkanal-Schleife */
+    int64_t  session_us;    /* eine komplette Sitzung: oeffnen, VIR, 32 Bit, schliessen */
+} fpga_vjtag_test_t;
+
+/* Kennung lesen, dann count Rueckkanal-Scans (je 32 Bit; jeder Scan liest den
+ * Wert des vorigen zurueck) und eine Einzelsitzung timen. */
+esp_err_t fpga_vjtag_test(const fpga_vjtag_hub_t *hub, int count, fpga_vjtag_test_t *r);

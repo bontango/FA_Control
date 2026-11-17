@@ -21,6 +21,23 @@ menu "FA_Control"
                 programmiert es das EPCS des FPGA (AS, nCONFIG). Keine DIP-Bank,
                 kein Tiefschlaf, Konsole ueber USB-Serial-JTAG (GPIO20/21 sind
                 CONF_DONE und TDO). Bauen mit sdkconfig.defaults.v7.
+
+        config FA_BOARD_JTAG_PIGGYBACK
+            bool "JTAG-Piggyback an P5 (ESP32_jtag_piggyback)"
+            help
+                Supermini auf der Traegerplatine ESP32_jtag_piggyback, per
+                Flachbandkabel am 10-poligen JTAG-Header P5 eines FPGA-Boards
+                ohne eigenen ESP (v3, v4.x, 10CL006). Nur TCK/TMS/TDI/TDO
+                (GPIO6/10/7/5). Kein LISY-UART, kein CTRL_REQ, keine DIP-Bank:
+                FA-Control laeuft spaeter ueber Virtual JTAG (Stufe 2 = Test,
+                ESP32-C3_EVALUIERUNG.md Abschnitt 15). Bauen mit
+                sdkconfig.defaults.jtag.
     endchoice
+
+    config FA_FPGA_JTAG
+        bool
+        default y if FA_BOARD_PIGGYBACK_V7 || FA_BOARD_JTAG_PIGGYBACK
+        help
+            Die Variante erreicht den JTAG-Port des FPGA (fpga_jtag.c).
 
 endmenu
