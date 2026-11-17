@@ -1186,7 +1186,13 @@ USB and connect the cable; the board powers the Supermini.
 
 | Endpoint | Function |
 |---|---|
-| `GET /api/vjtag[?n=1000]` | hub enumeration plus test: `idcode`, `hub_info`, `nodes`, `m`, `n`, `addr`, `node_info[]`, `id`, `echo_total`, `echo_ok`, `fail_out`, `fail_in`, `echo_us`, `bytes_per_s`, `session_us`, `ok`. `n` = echo scans, 1…100 000 |
+| `GET /api/vjtag[?n=1000][&dead=1]` | hub enumeration, then by node ID: **"GF8x"** test node `vjtag_probe`: `id`, `echo_total`, `echo_ok`, `fail_out`, `fail_in`, `echo_us`, `bytes_per_s`, `session_us`, `ok` (`n` = echo scans, 1…100 000). **"FALx"** `fa_vjtag_link`: LISY commands 0/1/2/110 as `hw`/`ver`/`api`/`mon` (`rx`, `scans`, `us`, `str`, `hex`), control bit `ctrl_set1`/`ctrl_set0`, with `dead=1` also `ctrl_dead` (set, 2.5 s idle, must read 0). The echo test never runs against the link — it would send bytes to FA control |
 
-Measured on board v4.x (17.11.2026): 2 × 100 000 scans without error, 18.6 µs per 32-bit scan
+| `POST /api/fwupload?board=<socket\|v7\|jtag>` | (all variants) firmware upload from the PC: body = `FA_Control.bin`, written to the free OTA partition, checked by `esp_ota_end()`, then boot partition switched and restart after 1 s. `board` must match the device's own variant, otherwise `400`. `curl --data-binary @FA_Control.bin "http://<ip>/api/fwupload?board=jtag"` |
+| UI tile 09 FPGA (`"fpga":2`) | JTAG piggyback only: STATUS via `GET /api/vjtag?info=1` (hub and node ID only — no LISY bytes, no control bit, safe during a connection; `kind` = `full`/`monitor`/`control` from the link ID "FA" + L/M/C + board ID), LOAD A DESIGN = file picker for a `.fjz` → `POST /api/fpgasram`. Loading ends a running connection first (like DISCONNECT) |
+| `POST /api/fpgasram` | load any design into the FPGA SRAM over JTAG. Body = `.fjz` from `fpga/as_release/make_jtag_blob.py --sof <x.sof> --out <x.fjz>` (header `FJZ1`, CHECK_STATUS length and CONF_DONE bit as u16 LE, then zlib). Inflated and shifted while it arrives. Answer: `ok`, `err`, `idcode`, `conf_done`, `bytes`, `ms`. SRAM only — after power-off the EPCS design boots again. The IDCODE only names the die, so load only designs built for this board |
+
+Measured on board v4.x (17.11.2026): `/api/fpgasram` loads the 368 KB stream (94–98 KB `.fjz`)
+in 1.76–1.78 s; switching monitor ↔ control version 10 times without error.
+`/api/vjtag`: 2 × 100 000 scans without error, 18.6 µs per 32-bit scan
 = 215 kB/s of payload, one complete session (open, select VIR, 32 bits, close) 0.1 ms.

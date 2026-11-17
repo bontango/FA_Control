@@ -4,6 +4,9 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#if CONFIG_FA_BOARD_JTAG_PIGGYBACK
+#include "fpga_jtag.h"
+#endif
 
 static const char *TAG = "board";
 
@@ -183,9 +186,15 @@ void board_led_lock(bool locked)
 void board_ctrl_request(bool active)
 {
 #if CONFIG_FA_BOARD_JTAG_PIGGYBACK
-    /* Keine Leitung: kommt spaeter als Bit im Virtual-JTAG-Steuerregister. */
-    ESP_LOGW(TAG, "Uebernahme-Anforderung (%s): auf dem JTAG-Piggyback noch nicht moeglich",
-             active ? "setzen" : "zuruecknehmen");
+    /* Keine Leitung: Bit 0 im Steuerregister von fa_vjtag_link. Totmann im FPGA:
+     * ohne Datenscan 2 s lang (Watchdog alle 500 ms) faellt es von selbst ab. */
+    esp_err_t err = fpga_vjtag_link_ctrl(active);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Uebernahme-Anforderung %s (vJTAG)", active ? "gesetzt" : "zurueckgenommen");
+    } else {
+        ESP_LOGW(TAG, "Uebernahme-Anforderung (%s) ueber vJTAG: %s",
+                 active ? "setzen" : "zuruecknehmen", esp_err_to_name(err));
+    }
 #else
     int level = active ? BOARD_CTRL_ACTIVE_LEVEL : !BOARD_CTRL_ACTIVE_LEVEL;
     gpio_set_level(BOARD_PIN_CTRL_REQ, level);

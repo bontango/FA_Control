@@ -21,19 +21,38 @@ Revisionen (je eine .qsf in diesem Ordner, gleiche VHDL):
 Aufruf (aus diesem Ordner, nach der Quartus-Uebersetzung der Revision):
     quartus_sh --flow compile as_release -c <revision>
     python make_jtag_blob.py [<revision>] [Pfad\\zu\\quartus_cpf.exe]
+
+Beliebiges Design fuer POST /api/fpgasram (JTAG-Piggyback, 17.11.2026):
+    python make_jtag_blob.py --sof <datei.sof> --out <datei.fjz> [--cpf <quartus_cpf.exe>]
+Die .fjz hat einen 8-Byte-Kopf: b"FJZ1", CHECK_STATUS-Laenge (u16 LE), CONF_DONE-Bit
+(u16 LE), danach der zlib-Strom. So bringt die Datei die je Die/Gehaeuse verschiedenen
+CHECK_STATUS-Werte selbst mit.
 """
 import os
 import re
+import struct
 import subprocess
 import sys
 import tempfile
 import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REV = sys.argv[1] if len(sys.argv) > 1 else 'as_release'
-SOF = os.path.join(HERE, 'output_files', REV + '.sof')
-OUT = os.path.join(HERE, '..', '..', 'main', 'blob', REV + '.jtag.z')
-CPF = sys.argv[2] if len(sys.argv) > 2 else r'C:\intelFPGA_lite\22.1std\quartus\bin64\quartus_cpf.exe'
+CPF = r'C:\intelFPGA_lite\22.1std\quartus\bin64\quartus_cpf.exe'
+FJZ = False
+if '--sof' in sys.argv:
+    a = sys.argv
+    SOF = a[a.index('--sof') + 1]
+    OUT = a[a.index('--out') + 1]
+    if '--cpf' in a:
+        CPF = a[a.index('--cpf') + 1]
+    REV = os.path.splitext(os.path.basename(SOF))[0]
+    FJZ = True
+else:
+    REV = sys.argv[1] if len(sys.argv) > 1 else 'as_release'
+    SOF = os.path.join(HERE, 'output_files', REV + '.sof')
+    OUT = os.path.join(HERE, '..', '..', 'main', 'blob', REV + '.jtag.z')
+    if len(sys.argv) > 2:
+        CPF = sys.argv[2]
 
 # Was fpga_jtag.c ausfuehrt; <SDR> steht fuer den Datenstrom.
 EXPECTED = [
@@ -80,9 +99,11 @@ def main():
     if len(cs_bits) != 1:
         sys.exit('CHECK_STATUS: erwartet genau ein MASK-Bit (CONF_DONE), gefunden %s' % cs_bits)
 
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(OUT)), exist_ok=True)
     packed = zlib.compress(data, 9)
     with open(OUT, 'wb') as f:
+        if FJZ:
+            f.write(b'FJZ1' + struct.pack('<HH', cs_len, cs_bits[0]))
         f.write(packed)
     print('%s: %d Byte Datenstrom (%d Bit), gepackt %d Byte'
           % (os.path.normpath(OUT), len(data), nbits, len(packed)))

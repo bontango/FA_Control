@@ -5,8 +5,11 @@
 #include <string.h>
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "app_config.h"
 #include "esp_app_desc.h"
@@ -26,11 +29,25 @@
 
 static const char *TAG = "web";
 
-/* Kachel 09 FPGA nur auf dem EP4CE6 dev board v7 (Kconfig.projbuild). */
+/* Kachel 09 FPGA: 1 = EP4CE6 dev board v7 (EPCS schreiben), 2 = JTAG-Piggyback
+ * (Design per JTAG in den SRAM laden). Kconfig.projbuild. */
 #if CONFIG_FA_BOARD_PIGGYBACK_V7
 #define HAS_FPGA 1
+#elif CONFIG_FA_BOARD_JTAG_PIGGYBACK
+#define HAS_FPGA 2
 #else
 #define HAS_FPGA 0
+#endif
+
+/* Name der Board-Variante: in /api/status (Anzeige) und beim Firmware-Upload als
+ * ?board= Pflicht. Ein Image einer anderen Variante haette eine andere Pinbelegung
+ * (fw_update.c, eigener Ordner je Variante, aus demselben Grund). */
+#if CONFIG_FA_BOARD_PIGGYBACK_V7
+#define FW_BOARD_NAME "v7"
+#elif CONFIG_FA_BOARD_JTAG_PIGGYBACK
+#define FW_BOARD_NAME "jtag"
+#else
+#define FW_BOARD_NAME "socket"
 #endif
 
 extern const uint8_t index_html_gz_start[] asm("_binary_index_html_gz_start");
@@ -498,9 +515,9 @@ static esp_err_t status_get_handler(httpd_req_t *req)
     wifi_mgr_diag(&temp, &rssi);
     char buf[192];
     snprintf(buf, sizeof(buf),
-             "{\"mode\":\"%s\",\"ip\":\"%s\",\"ver\":\"%s\",\"temp\":%.1f,\"rssi\":%d}",
+             "{\"mode\":\"%s\",\"ip\":\"%s\",\"ver\":\"%s\",\"board\":\"%s\",\"temp\":%.1f,\"rssi\":%d}",
              wifi_mgr_get_mode() == WIFI_MGR_MODE_AP ? "ap" : "sta",
-             ip, esp_app_get_description()->version, temp, rssi);
+             ip, esp_app_get_description()->version, FW_BOARD_NAME, temp, rssi);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
 }
@@ -733,6 +750,81 @@ static esp_err_t fwupdate_post_handler(httpd_req_t *req)
         return send_err(req, "Invalid file name");
     }
     return send_ok(req);
+}
+
+static void restart_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    esp_restart();
+}
+
+/* POST /api/fwupload?board=<socket|v7|jtag>  Body = FA_Control.bin (rohes App-Image).
+ * Wie das Update vom Server, nur kommt das Image vom PC:
+ *   curl --data-binary @FA_Control.bin "http://<ip>/api/fwupload?board=jtag"
+ * Schreibt in die freie OTA-Partition, esp_ota_end() prueft das Image, danach
+ * Boot-Partition umstellen und Neustart. Antwort vorher als JSON. */
+static esp_err_t fwupload_post_handler(httpd_req_t *req)
+{
+    char board[12];
+    if (!get_param(req, "board", board, sizeof(board)) || strcmp(board, FW_BOARD_NAME) != 0) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                   "Parameter board missing or wrong (this device: " FW_BOARD_NAME ")");
+    }
+    const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
+    if (!part) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No OTA partition");
+    }
+    if (req->content_len == 0 || req->content_len > part->size) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Image size does not fit");
+    }
+    esp_ota_handle_t h;
+    esp_err_t err = esp_ota_begin(part, OTA_WITH_SEQUENTIAL_WRITES, &h);
+    if (err != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(err));
+    }
+    char *buf = malloc(4096);
+    if (!buf) {
+        esp_ota_abort(h);
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+    }
+    size_t left = req->content_len;
+    int timeouts = 0;
+    int64_t t0 = esp_timer_get_time();
+    while (left > 0 && err == ESP_OK) {
+        int n = httpd_req_recv(req, buf, left < 4096 ? left : 4096);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) {
+            continue;
+        }
+        if (n <= 0) {
+            err = ESP_ERR_TIMEOUT;
+            break;
+        }
+        timeouts = 0;
+        err = esp_ota_write(h, buf, n);
+        left -= n;
+    }
+    free(buf);
+    if (err != ESP_OK) {
+        esp_ota_abort(h);
+        ESP_LOGE(TAG, "Firmware-Upload abgebrochen: %s", esp_err_to_name(err));
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(err));
+    }
+    err = esp_ota_end(h);                       /* prueft das Image */
+    if (err == ESP_OK) {
+        err = esp_ota_set_boot_partition(part);
+    }
+    long ms = (long)((esp_timer_get_time() - t0) / 1000);
+    ESP_LOGI(TAG, "Firmware-Upload %u Byte nach %s in %ld ms: %s",
+             (unsigned)req->content_len, part->label, ms, esp_err_to_name(err));
+    char resp[160];
+    snprintf(resp, sizeof(resp), "{\"ok\":%d,\"err\":\"%s\",\"bytes\":%u,\"ms\":%ld,\"partition\":\"%s\"}",
+             err == ESP_OK ? 1 : 0, esp_err_to_name(err), (unsigned)req->content_len, ms, part->label);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, resp);
+    if (err == ESP_OK) {
+        xTaskCreate(restart_task, "fw_restart", 2048, NULL, 5, NULL);
+    }
+    return ESP_OK;
 }
 
 static esp_err_t fwstatus_get_handler(httpd_req_t *req)
@@ -1098,10 +1190,157 @@ static esp_err_t fpgaup_post_handler(httpd_req_t *req)
 
 /* ---- API: Virtual JTAG (Stufe 2 von "FA-Control ueber JTAG") -------------- */
 
-/* GET /api/vjtag[?n=1000] -- Hub abfragen; findet sich ein Virtual-JTAG-Knoten,
- * den Testknoten pruefen (Kennung, n Rueckkanal-Scans, Zeiten). Nur lesend fuer
- * das Spiel: der Knoten vjtag_probe haengt an nichts. Auf einem Design ohne Hub
- * passiert am TAP nichts ausser USER0/USER1 ins Leere. */
+/* Ein LISY-Befehl ueber fa_vjtag_link als JSON-Feld: "name":{"tx":n,"rx":n,"us":t,"str":"..","hex":".."} */
+static int vjtag_lisy_field(const fpga_vjtag_hub_t *hub, const char *name, const uint8_t *cmd,
+                            int n, char *out, size_t max)
+{
+    uint8_t rx[80];
+    int scans = 0;
+    int64_t t0 = esp_timer_get_time();
+    int got = fpga_vjtag_xfer(hub, cmd, n, rx, sizeof(rx), 50, &scans);
+    int64_t us = esp_timer_get_time() - t0;
+    int stored = got < (int)sizeof(rx) ? got : (int)sizeof(rx);
+    int len = snprintf(out, max, ",\"%s\":{\"rx\":%d,\"scans\":%d,\"us\":%lld,\"str\":\"",
+                       name, got, scans, (long long)us);
+    for (int i = 0; i < stored && len < (int)max - 8; i++) {
+        char c = (char)rx[i];
+        if (c == 0) {
+            break;
+        }
+        out[len++] = (c >= 0x20 && c < 0x7F && c != '"' && c != '\\') ? c : '?';
+    }
+    len += snprintf(out + len, max - len, "\",\"hex\":\"");
+    for (int i = 0; i < stored && i < 24 && len < (int)max - 8; i++) {
+        len += snprintf(out + len, max - len, "%02X", rx[i]);
+    }
+    len += snprintf(out + len, max - len, "\"}");
+    return len < (int)max ? len : (int)max - 1;
+}
+
+/* fa_vjtag_link (Stufe 3): Kennung, Bytes, Monitor, Steuerbit. ?dead=1 prueft
+ * zusaetzlich die Totmannzeit (Bit setzen, 2,5 s nichts tun, lesen: muss 0 sein). */
+static int vjtag_link_test(httpd_req_t *req, uint32_t id, char *out, size_t max)
+{
+    fpga_vjtag_hub_t hub;
+    fpga_vjtag_probe(&hub);
+    int len = snprintf(out, max, ",\"id\":\"0x%08lX\",\"node\":\"fa_vjtag_link\"", (unsigned long)id);
+
+    static const uint8_t c_hw[]  = { LISY_CMD_G_HW };
+    static const uint8_t c_ver[] = { LISY_CMD_G_LISY_VER };
+    static const uint8_t c_api[] = { LISY_CMD_G_API_VER };
+    static const uint8_t c_mon[] = { LISY_CMD_MONITOR };
+    len += vjtag_lisy_field(&hub, "hw", c_hw, 1, out + len, max - len);
+    len += vjtag_lisy_field(&hub, "ver", c_ver, 1, out + len, max - len);
+    len += vjtag_lisy_field(&hub, "api", c_api, 1, out + len, max - len);
+    len += vjtag_lisy_field(&hub, "mon", c_mon, 1, out + len, max - len);
+
+    int v1 = -1, v0 = -1, vd = -1;
+    fpga_vjtag_ctrl(&hub, 1, &v1);
+    fpga_vjtag_ctrl(&hub, 0, &v0);
+    if (get_param_int(req, "dead", 0)) {
+        fpga_vjtag_ctrl(&hub, 1, NULL);
+        vTaskDelay(pdMS_TO_TICKS(2500));
+        fpga_vjtag_ctrl(&hub, -1, &vd);
+    }
+    len += snprintf(out + len, max - len, ",\"ctrl_set1\":%d,\"ctrl_set0\":%d,\"ctrl_dead\":%d,\"ok\":1}",
+                    v1, v0, vd);
+    return len < (int)max ? len : (int)max - 1;
+}
+
+/* ---- API: beliebiges Design per JTAG in den SRAM ------------------------- */
+
+typedef struct {
+    httpd_req_t *req;
+    size_t       left;      /* noch zu empfangen */
+    uint8_t      buf[2048];
+} http_src_t;
+
+static int http_recv_some(http_src_t *s, uint8_t *dst, size_t max)
+{
+    for (int tries = 0; tries < 5; tries++) {
+        int n = httpd_req_recv(s->req, (char *)dst, max);
+        if (n > 0) {
+            s->left -= n;
+            return n;
+        }
+        if (n != HTTPD_SOCK_ERR_TIMEOUT) {
+            return -1;
+        }
+    }
+    return -1;
+}
+
+static int http_src(void *ctx, const uint8_t **p)
+{
+    http_src_t *s = ctx;
+    if (s->left == 0) {
+        return 0;
+    }
+    int n = http_recv_some(s, s->buf, s->left < sizeof(s->buf) ? s->left : sizeof(s->buf));
+    *p = s->buf;
+    return n;
+}
+
+/* POST /api/fpgasram  Body = .fjz (make_jtag_blob.py --sof ... --out ...):
+ *   "FJZ1", u16 CHECK_STATUS-Laenge, u16 CONF_DONE-Bit (little endian), zlib-Strom.
+ * Der Strom wird beim Empfang entpackt und sofort geschoben, nichts zwischengespeichert.
+ * Nur SRAM: nach Aus/Ein bootet wieder das EPCS-Design. Nur Designs laden, die fuer
+ * genau dieses Board gebaut sind -- die IDCODE sagt nur, welches Die es ist. */
+static esp_err_t fpgasram_post_handler(httpd_req_t *req)
+{
+    http_src_t *s = calloc(1, sizeof(*s));
+    if (!s) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No memory");
+    }
+    s->req = req;
+    s->left = req->content_len;
+
+    uint8_t hdr[8];
+    size_t got = 0;
+    while (got < sizeof(hdr) && s->left > 0) {
+        int n = http_recv_some(s, hdr + got, sizeof(hdr) - got);
+        if (n < 0) {
+            break;
+        }
+        got += n;
+    }
+    if (got < sizeof(hdr) || memcmp(hdr, "FJZ1", 4) != 0) {
+        free(s);
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Not a .fjz file (FJZ1 header)");
+    }
+    int cs_len = hdr[4] | (hdr[5] << 8);
+    int cs_bit = hdr[6] | (hdr[7] << 8);
+
+    /* Das neue Design startet von vorn: eine laufende Verbindung ist damit zu Ende.
+     * Sauber freigeben wie DISCONNECT, sonst hielte der Watchdog sie fuer lebendig. */
+    fa_connect_release();
+    lisy_lamp_bitmap_clear();
+    s_switches_initialized = false;
+    memset(s_disp_text, 0, sizeof(s_disp_text));
+
+    fpga_jtag_sram_result_t r;
+    esp_err_t err = fpga_jtag_load_sram(http_src, s, cs_len, cs_bit, &r);
+    fpga_vjtag_link_invalidate();   /* neues Design, neuer Hub */
+    /* Rest verwerfen, falls abgebrochen wurde -- sonst haengt der Client */
+    while (s->left > 0 && http_recv_some(s, s->buf, s->left < sizeof(s->buf) ? s->left : sizeof(s->buf)) > 0) {
+    }
+    free(s);
+
+    char buf[200];
+    snprintf(buf, sizeof(buf),
+             "{\"ok\":%d,\"err\":\"%s\",\"idcode\":\"0x%08lX\",\"conf_done\":%d,"
+             "\"bytes\":%u,\"ms\":%lld,\"cs_len\":%d,\"cs_bit\":%d}",
+             err == ESP_OK ? 1 : 0, esp_err_to_name(err), (unsigned long)r.idcode,
+             r.conf_done, (unsigned)r.bytes, (long long)r.ms, cs_len, cs_bit);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, buf);
+}
+
+/* GET /api/vjtag[?n=1000][&dead=1] -- Hub abfragen; findet sich ein Virtual-JTAG-
+ * Knoten, nach Kennung unterscheiden:
+ *   "GF8x" Testknoten vjtag_probe: Kennung, n Rueckkanal-Scans, Zeiten
+ *   "FALx" fa_vjtag_link: LISY-Befehle 0/1/2/110 und das Steuerbit (s. o.)
+ * Auf einem Design ohne Hub passiert am TAP nichts ausser USER0/USER1 ins Leere. */
 static esp_err_t vjtag_get_handler(httpd_req_t *req)
 {
     int count = get_param_int(req, "n", 1000);
@@ -1114,7 +1353,7 @@ static esp_err_t vjtag_get_handler(httpd_req_t *req)
     fpga_vjtag_hub_t hub;
     esp_err_t perr = fpga_vjtag_probe(&hub);
 
-    char buf[768];
+    char buf[1024];
     int len = snprintf(buf, sizeof(buf),
                        "{\"idcode\":\"0x%08lX\",\"hub_info\":\"0x%08lX\",\"nodes\":%d,"
                        "\"m\":%d,\"n\":%d,\"addr\":%d,\"node_info\":[",
@@ -1128,7 +1367,24 @@ static esp_err_t vjtag_get_handler(httpd_req_t *req)
         len += snprintf(buf + len, sizeof(buf) - len, "]");
     }
 
-    if (perr == ESP_OK && len < (int)sizeof(buf)) {
+    uint32_t id = (perr == ESP_OK) ? fpga_vjtag_read_id(&hub) : 0;
+    if (get_param_int(req, "info", 0) && len < (int)sizeof(buf)) {
+        /* Nur Hub und Kennung -- keine LISY-Bytes, kein Steuerbit: stoert eine
+         * laufende Verbindung nicht (Menue FPGA auf dem JTAG-Piggyback). */
+        const char *node = FPGA_VJTAG_IS_LINK(id)          ? "fa_vjtag_link" :
+                           (id >> 8) == FPGA_VJTAG_ID_PROBE ? "vjtag_probe"   :
+                           perr == ESP_OK                   ? "unknown"       : "none";
+        /* Art des FA-Designs: full / monitor / control */
+        const char *kind = !FPGA_VJTAG_IS_LINK(id)          ? ""        :
+                           FPGA_VJTAG_LINK_KIND(id) == 'M'  ? "monitor" :
+                           FPGA_VJTAG_LINK_KIND(id) == 'C'  ? "control" :
+                           FPGA_VJTAG_LINK_KIND(id) == 'S'  ? "service" : "full";
+        len += snprintf(buf + len, sizeof(buf) - len,
+                        ",\"id\":\"0x%08lX\",\"node\":\"%s\",\"kind\":\"%s\",\"ok\":1}",
+                        (unsigned long)id, node, kind);
+    } else if (perr == ESP_OK && FPGA_VJTAG_IS_LINK(id) && len < (int)sizeof(buf)) {
+        len += vjtag_link_test(req, id, buf + len, sizeof(buf) - len);
+    } else if (perr == ESP_OK && len < (int)sizeof(buf)) {
         fpga_vjtag_test_t t;
         esp_err_t terr = fpga_vjtag_test(&hub, count, &t);
         /* Nutzdaten je Sekunde: 4 Byte je Rueckkanal-Scan */
@@ -1160,7 +1416,7 @@ esp_err_t web_server_start(void)
     /* Muss >= Anzahl der Eintraege in uris[] sein, sonst werden die letzten
      * stillschweigend nicht registriert und laufen in den Captive-Portal-
      * Fallback. Beim Hinzufuegen eines Endpunkts hier mitzaehlen. */
-    cfg.max_uri_handlers = 40;   /* v1.26: 32 Eintraege, bei v7 37, mit /api/vjtag 38 */
+    cfg.max_uri_handlers = 44;   /* 33 Eintraege (mit /api/fwupload), v7 38, mit /api/vjtag + /api/fpgasram 40 */
     cfg.lru_purge_enable = true;
     /* TLS-Client (fwlist via mbedTLS) laeuft im httpd-Task -> mehr Stack noetig */
     cfg.stack_size = 10240;
@@ -1190,6 +1446,7 @@ esp_err_t web_server_start(void)
         { .uri = "/api/fwlist",  .method = HTTP_GET,  .handler = fwlist_get_handler },
         { .uri = "/api/fwupdate",.method = HTTP_POST, .handler = fwupdate_post_handler },
         { .uri = "/api/fwstatus",.method = HTTP_GET,  .handler = fwstatus_get_handler },
+        { .uri = "/api/fwupload",.method = HTTP_POST, .handler = fwupload_post_handler },
         { .uri = "/api/names",   .method = HTTP_GET,  .handler = names_get_handler },
         { .uri = "/api/namelist",.method = HTTP_GET,  .handler = namelist_get_handler },
         { .uri = "/api/namesel", .method = HTTP_POST, .handler = namesel_post_handler },
@@ -1211,6 +1468,7 @@ esp_err_t web_server_start(void)
 #endif
 #if CONFIG_FA_FPGA_JTAG
         { .uri = "/api/vjtag",      .method = HTTP_GET,  .handler = vjtag_get_handler },
+        { .uri = "/api/fpgasram",   .method = HTTP_POST, .handler = fpgasram_post_handler },
 #endif
         { .uri = "/logo.png",    .method = HTTP_GET,  .handler = logo_get_handler },
         /* Der Wildcard-Eintrag faengt alles Uebrige und muss zuletzt stehen. */

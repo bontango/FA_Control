@@ -317,6 +317,7 @@ legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;f
     <button class="tile" data-s="names" id="t_names"><span class="no">07</span><span class="nm">NAMES</span><span class="ds">NAMING FILES · UPLOAD · LOAD</span></button>
     <button class="tile" data-s="roms" id="t_roms"><span class="no">08</span><span class="nm">GAME ROMS</span><span class="ds">BOOT WITHOUT SD CARD · UPLOAD · LOAD</span></button>
     <button class="tile" data-s="fpga" id="t_fpga" style="display:none"><span class="no">09</span><span class="nm">FPGA</span><span class="ds">EPCS · UPLOAD · RECONFIGURE</span></button>
+    <button class="tile" data-s="fpgaj" id="t_fpgaj" style="display:none"><span class="no">09</span><span class="nm">FPGA</span><span class="ds">JTAG · LOAD DESIGN</span></button>
   </div>
 </div>
 
@@ -554,6 +555,39 @@ name=Airborne Avenger
   </fieldset>
 </section>
 
+<!-- Nur auf dem JTAG-Piggyback an P5 ("fpga":2 in /api/config). Ein Design wird per
+     JTAG in den SRAM des FPGA geladen -- bis zum Ausschalten, dann bootet wieder das
+     Design aus dem Konfigurationsflash. -->
+<section id="fpgaj"><div class="shead"><button class="back">◀ MENU</button><h2>FPGA</h2></div>
+  <p class="hint">THIS DEVICE TALKS TO THE FPGA OVER ITS JTAG HEADER. FA CONTROL NEEDS A DESIGN WITH
+    THE FA LINK (VIRTUAL JTAG) — THE RELEASED .JIC IN THE CONFIGURATION FLASH HAS NONE. LOAD ONE
+    BELOW: IT RUNS UNTIL THE NEXT POWER-OFF, THEN THE BOARD BOOTS ITS OWN DESIGN AGAIN.</p>
+  <fieldset><legend>STATUS</legend>
+    <div class="val" style="border-color:var(--cu)">
+      <span>FPGA</span><b id="fjid">–</b>
+    </div>
+    <div class="val" style="border-color:var(--cu)">
+      <span>RUNNING DESIGN</span><b id="fjnode">–</b>
+    </div>
+    <div class="val" style="border-color:var(--cu)">
+      <span>FA CONTROL</span><b id="fjkind">–</b>
+    </div>
+    <div class="row">
+      <button class="btn" id="fjcheck">CHECK</button>
+    </div>
+  </fieldset>
+  <fieldset><legend>LOAD A DESIGN</legend>
+    <div class="row" style="margin-top:0">
+      <input type="file" id="fjfile" accept=".fjz">
+      <button class="btn" id="fjload">LOAD</button>
+    </div>
+    <div class="row"><span class="hint" id="fjstat" style="margin:0"></span></div>
+    <p class="hint" style="margin:.8rem 0 0">A .FJZ FILE MADE FROM THE QUARTUS .SOF OF THIS BOARD
+      (MAKE_JTAG_BLOB.PY --SOF … --OUT …). TAKES ABOUT 2 S. THE GAME RESTARTS AND A RUNNING
+      CONNECTION ENDS. LOAD ONLY DESIGNS BUILT FOR THIS BOARD — THE FPGA ID ONLY TELLS THE CHIP.</p>
+  </fieldset>
+</section>
+
 </main>
 <div id="toast"></div>
 <script>
@@ -594,6 +628,7 @@ function show(id){
   if(id==="names")nmList();
   if(id==="roms")romList();
   if(id==="fpga")fpInfo("");
+  if(id==="fpgaj")fjInfo();
   if(!id)homeTimer=setInterval(refreshConn,2000);
 }
 document.querySelectorAll(".tile").forEach(function(t){
@@ -758,13 +793,14 @@ function applyConn(){
      GAME ROMS bleiben offen: Netz einrichten und Dateien verwalten geht auch ohne. */
   document.querySelectorAll(".tile").forEach(function(t){
     t.disabled=(t.dataset.s!=="wifi"&&t.dataset.s!=="names"&&t.dataset.s!=="roms"&&
-                t.dataset.s!=="fpga")&&!live});
+                t.dataset.s!=="fpga"&&t.dataset.s!=="fpgaj")&&!live});
   /* Ohne Partition (Geraet nur per OTA aktualisiert) gibt es nichts zu verwalten. */
   $("#t_names").style.display=cfg.namesfs?"":"none";
   /* ROMs haben eine eigene Partition -- sie kommt wie die der Namen nur per USB. */
   $("#t_roms").style.display=cfg.romfs?"":"none";
-  /* FPGA programmieren kann nur die Variante fuer das EP4CE6 dev board v7. */
-  $("#t_fpga").style.display=cfg.fpga?"":"none";
+  /* FPGA: 1 = Board v7 (EPCS schreiben), 2 = JTAG-Piggyback (Design in den SRAM). */
+  $("#t_fpga").style.display=cfg.fpga===1?"":"none";
+  $("#t_fpgaj").style.display=cfg.fpga===2?"":"none";
 }
 
 /* Auf der Startseite mitlaufen lassen: die Gegenstelle kann die Kontrolle
@@ -1297,9 +1333,11 @@ function init(){
       .catch(function(){toast("NO CONNECTION")})});
   getj("/api/status",function(s){
     wifiMode=s.mode;
-    $("#status").innerHTML="V<b>"+s.ver+"</b> · WI-FI <b>"+s.mode.toUpperCase()+
-      "</b> · IP <b>"+s.ip+"</b>";
-    $("#fwver").textContent="INSTALLED VERSION: "+s.ver;
+    /* Board-Variante der Firmware (eigenes Image je Variante, seit 1.30 angezeigt) */
+    var bd={socket:"SOCKET · UART",v7:"BOARD V7",jtag:"JTAG PIGGYBACK"}[s.board]||"";
+    $("#status").innerHTML="V<b>"+s.ver+"</b>"+(bd?" · <b>"+bd+"</b>":"")+
+      " · WI-FI <b>"+s.mode.toUpperCase()+"</b> · IP <b>"+s.ip+"</b>";
+    $("#fwver").textContent="INSTALLED VERSION: "+s.ver+(bd?" ("+bd+")":"");
     if(s.mode==="ap"){var w=$("#apwarn");w.style.display="block";
       w.onclick=function(){show("wifi")};
       $("#fwfetch").disabled=true;
@@ -1370,6 +1408,43 @@ $("#fpdump").onclick=function(){
     toast("ADDRESS AND LENGTH: DECIMAL OR 0x…");return}
   if(!confirm(FP_WARN))return;
   location.href="/api/fpgadump?addr="+encodeURIComponent(a)+"&len="+encodeURIComponent(l)};
+
+/* ---- FPGA (nur JTAG-Piggyback) ----
+   CHECK fragt nur Hub und Kennung ab (/api/vjtag?info=1), ohne LISY-Bytes und ohne
+   Steuerbit -- stoert eine laufende Verbindung nicht. */
+var FJ_NODES={fa_vjtag_link:"FA CONTROL READY (FA LINK)",vjtag_probe:"TEST NODE — NO FA CONTROL",
+  unknown:"VIRTUAL JTAG, BUT NO FA LINK",none:"NO FA LINK — E.G. THE RELEASED DESIGN"};
+/* Sparversionen fuer EP4CE6/10CL006: nur Monitor oder nur Steuerung (Kennung FAM/FAC) */
+var FJ_KINDS={full:"FULL — MONITOR AND CONTROL",monitor:"MONITOR ONLY — NO CONNECT",
+  control:"CONTROL ONLY — NO MONITOR",service:"SERVICE — CONTROL, NO GAME"};
+function fjInfo(){
+  $("#fjnode").textContent="…";
+  getj("/api/vjtag?info=1",function(j){
+    var known={"0x020F10DD":"EP4CE6 / 10CL006"};
+    $("#fjid").textContent=(j.idcode==="0x00000000"||j.idcode==="0xFFFFFFFF")?
+      "NO ANSWER — CABLE?":(known[j.idcode]||"ID")+" · "+j.idcode;
+    $("#fjnode").textContent=(FJ_NODES[j.node]||j.node)+(j.node!=="none"?" · "+j.id:"");
+    $("#fjkind").textContent=FJ_KINDS[j.kind]||"–"})}
+$("#fjcheck").onclick=fjInfo;
+$("#fjload").onclick=function(){
+  var f=$("#fjfile").files[0],btn=this,st=$("#fjstat");
+  if(!f){toast("CHOOSE A FILE FIRST");return}
+  if(f.size>1048576){toast("FILE TOO LARGE FOR A .FJZ");return}
+  if(!confirm("The FPGA gets the new design - the game restarts and a running connection ends. Continue?"))return;
+  btn.disabled=true;
+  var x=new XMLHttpRequest();
+  x.open("POST","/api/fpgasram");
+  x.upload.onprogress=function(e){
+    if(e.lengthComputable)st.textContent="LOADING … "+Math.floor(e.loaded*100/e.total)+" %"};
+  x.onload=function(){
+    btn.disabled=false;
+    var j=null;try{j=JSON.parse(x.responseText)}catch(e){}
+    if(x.status===200&&j&&j.ok)st.textContent="DONE IN "+j.ms+" MS ("+j.bytes+" BYTES)";
+    else st.textContent="ERROR: "+(j?j.err+(j.conf_done?"":" · CONF_DONE LOW"):x.responseText).toUpperCase();
+    refreshConn();fjInfo()};
+  x.onerror=function(){btn.disabled=false;st.textContent="ERROR: NO CONNECTION";fjInfo()};
+  st.textContent="LOADING …";
+  x.send(f)};
 
 init();
 show(null);

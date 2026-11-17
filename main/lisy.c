@@ -10,6 +10,9 @@
 
 #include "board_pins.h"
 #include "app_config.h"   /* CFG_MAX_DISP_W */
+#if CONFIG_FA_BOARD_JTAG_PIGGYBACK
+#include "fpga_jtag.h"
+#endif
 
 static const char *TAG = "lisy";
 
@@ -33,11 +36,137 @@ static volatile int s_wd_last = -1;
 static uint8_t s_switch_bitmap[LISY_SWITCH_BITMAP_LEN];
 static uint8_t s_lamp_bitmap[LISY_LAMP_BITMAP_LEN];
 
+/* ---- Transport: UART1 oder (JTAG-Piggyback) fa_vjtag_link ----------------- */
+
+#if CONFIG_FA_BOARD_JTAG_PIGGYBACK
+/* Bytestrom ueber Virtual JTAG (fpga_jtag.c, GottFA80 lib_common/fa_vjtag_link.vhd).
+ * Das FPGA setzt die Bytes wieder auf 115200 Baud um, fa_control bleibt gleich.
+ * Was ankommt, waehrend auf etwas anderes gewartet wird, landet im Ringpuffer --
+ * der UART-Treiber macht es mit seinem Empfangspuffer genauso. */
+#define JRX_LEN 512
+static uint8_t s_jrx[JRX_LEN];
+static size_t  s_jrx_head, s_jrx_tail;          /* head = schreiben, tail = lesen */
+static size_t  s_jtx_pending;                   /* seit dem letzten bus_wait_tx gesendet */
+
+static void jrx_put(const uint8_t *p, int n)
+{
+    for (int i = 0; i < n; i++) {
+        size_t next = (s_jrx_head + 1) % JRX_LEN;
+        if (next == s_jrx_tail) {
+            break;                              /* voll: Rest verwerfen */
+        }
+        s_jrx[s_jrx_head] = p[i];
+        s_jrx_head = next;
+    }
+}
+
+static size_t jrx_count(void)
+{
+    return (s_jrx_head + JRX_LEN - s_jrx_tail) % JRX_LEN;
+}
+
+static void bus_write(const uint8_t *data, size_t len)
+{
+    uint8_t tmp[64];
+    int n = fpga_vjtag_link_io(data, len, tmp, sizeof(tmp), 0, 0);
+    if (n > 0) {
+        jrx_put(tmp, n);
+    }
+    s_jtx_pending += len;
+}
+
+static int bus_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
+{
+    size_t got = 0;
+    int64_t t0 = esp_timer_get_time();
+    while (true) {
+        while (got < len && jrx_count() > 0) {
+            buf[got++] = s_jrx[s_jrx_tail];
+            s_jrx_tail = (s_jrx_tail + 1) % JRX_LEN;
+        }
+        int64_t left_ms = timeout_ms - (esp_timer_get_time() - t0) / 1000;
+        if (got >= len || left_ms < 0) {
+            break;
+        }
+        uint8_t tmp[64];
+        int n = fpga_vjtag_link_io(NULL, 0, tmp, sizeof(tmp), len - got, (int)left_ms);
+        if (n < 0) {
+            vTaskDelay(pdMS_TO_TICKS(left_ms < 10 ? left_ms + 1 : 10));   /* kein Link */
+        } else {
+            jrx_put(tmp, n);
+            if (n == 0) {
+                break;                          /* link_io hat die Zeit schon abgewartet */
+            }
+        }
+    }
+    return (int)got;
+}
+
+static void bus_flush_in(void)
+{
+    uint8_t tmp[64];
+    while (fpga_vjtag_link_io(NULL, 0, tmp, sizeof(tmp), 0, 0) == (int)sizeof(tmp)) {
+    }
+    s_jrx_head = s_jrx_tail = 0;
+}
+
+static size_t bus_avail(void)
+{
+    uint8_t tmp[64];
+    int n = fpga_vjtag_link_io(NULL, 0, tmp, sizeof(tmp), 0, 0);
+    if (n > 0) {
+        jrx_put(tmp, n);
+    }
+    return jrx_count();
+}
+
+/* Die Bytes liegen nach link_io im FIFO des FPGA; der gibt sie mit 115200 Baud an
+ * fa_control weiter (87 us je Byte, hoechstens 256 im Puffer). */
+static void bus_wait_tx(uint32_t timeout_ms)
+{
+    size_t n = s_jtx_pending > 256 ? 256 : s_jtx_pending;
+    uint32_t ms = (uint32_t)(n * 87 / 1000) + 2;
+    vTaskDelay(pdMS_TO_TICKS(ms < timeout_ms ? ms : timeout_ms));
+    s_jtx_pending = 0;
+}
+
+#else /* UART1 */
+
+static void bus_write(const uint8_t *data, size_t len)
+{
+    uart_write_bytes(LISY_UART, data, len);
+}
+
+static int bus_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
+{
+    int n = uart_read_bytes(LISY_UART, buf, len, pdMS_TO_TICKS(timeout_ms));
+    return n < 0 ? 0 : n;
+}
+
+static void bus_flush_in(void)
+{
+    uart_flush_input(LISY_UART);
+}
+
+static size_t bus_avail(void)
+{
+    size_t n = 0;
+    uart_get_buffered_data_len(LISY_UART, &n);
+    return n;
+}
+
+static void bus_wait_tx(uint32_t timeout_ms)
+{
+    uart_wait_tx_done(LISY_UART, pdMS_TO_TICKS(timeout_ms));
+}
+
+#endif
+
 /* ---- Low-Level ---------------------------------------------------------- */
 
 static void tx(const uint8_t *data, size_t len)
 {
-    uart_write_bytes(LISY_UART, data, len);
+    bus_write(data, len);
     if (esp_log_level_get(TAG) >= ESP_LOG_DEBUG) {
         char hex[3 * 8 + 1] = {0};
         size_t n = len > 8 ? 8 : len;
@@ -61,9 +190,9 @@ static int cmd_resp1(const uint8_t *data, size_t len)
 {
     uint8_t resp;
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    uart_flush_input(LISY_UART);
+    bus_flush_in();
     tx(data, len);
-    int n = uart_read_bytes(LISY_UART, &resp, 1, pdMS_TO_TICKS(RESP_TIMEOUT_MS));
+    int n = bus_read(&resp, 1, RESP_TIMEOUT_MS);
     xSemaphoreGive(s_mutex);
     return (n == 1) ? resp : -1;
 }
@@ -82,28 +211,26 @@ void lisy_bus_give(void)
 
 size_t lisy_bus_available(void)
 {
-    size_t n = 0;
-    uart_get_buffered_data_len(LISY_UART, &n);
-    return n;
+    return bus_avail();
 }
 
 int lisy_bus_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
 {
-    int n = uart_read_bytes(LISY_UART, buf, len, pdMS_TO_TICKS(timeout_ms));
+    int n = bus_read(buf, len, timeout_ms);
     return n < 0 ? 0 : n;
 }
 
 void lisy_bus_write(const uint8_t *buf, size_t len)
 {
-    uart_write_bytes(LISY_UART, buf, len);
+    bus_write(buf, len);
 }
 
 void lisy_bus_drain(void)
 {
     /* Ohne Sendepuffer kehrt uart_write_bytes() zurueck, sobald die Bytes im
      * FIFO liegen -- nicht, wenn sie gesendet sind. */
-    uart_wait_tx_done(LISY_UART, pdMS_TO_TICKS(2000));
-    uart_flush_input(LISY_UART);
+    bus_wait_tx(2000);
+    bus_flush_in();
 }
 
 /* ---- Watchdog ----------------------------------------------------------- */
@@ -142,6 +269,12 @@ esp_err_t lisy_init(void)
         return ESP_ERR_NO_MEM;
     }
 
+#if CONFIG_FA_BOARD_JTAG_PIGGYBACK
+    /* JTAG-Piggyback: kein UART, LISY geht ueber Virtual JTAG (fa_vjtag_link im
+     * FPGA-Design). Ohne dieses Design laufen die Befehle in den Timeout. */
+    ESP_LOGI(TAG, "LISY ueber Virtual JTAG (fa_vjtag_link), Link %s",
+             fpga_vjtag_link_present() ? "da" : "noch nicht da");
+#else
     uart_config_t uc = {
         .baud_rate = LISY_BAUD,
         .data_bits = UART_DATA_8_BITS,
@@ -152,14 +285,10 @@ esp_err_t lisy_init(void)
     };
     ESP_ERROR_CHECK(uart_driver_install(LISY_UART, LISY_RX_BUF, 0, 0, NULL, 0));
     ESP_ERROR_CHECK(uart_param_config(LISY_UART, &uc));
-#if CONFIG_FA_BOARD_JTAG_PIGGYBACK
-    /* JTAG-Piggyback: GPIO6/7 sind TCK/TDI. Der UART wird ohne Pins installiert
-     * (UART1 hat beim C3 keine festen IOMUX-Pins) -- alle Befehle laufen damit
-     * ohne Gegenstelle in den Timeout, bis LISY ueber Virtual JTAG kommt. */
-    ESP_LOGW(TAG, "JTAG-Piggyback: UART1 ohne Pins, LISY noch ohne Gegenstelle");
-#else
     ESP_ERROR_CHECK(uart_set_pin(LISY_UART, LISY_TX_GPIO, LISY_RX_GPIO,
                                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    ESP_LOGI(TAG, "UART1 bereit: TX=GPIO%d RX=GPIO%d %d Baud",
+             LISY_TX_GPIO, LISY_RX_GPIO, LISY_BAUD);
 #endif
 
     const esp_timer_create_args_t targs = {
@@ -168,9 +297,6 @@ esp_err_t lisy_init(void)
     };
     ESP_ERROR_CHECK(esp_timer_create(&targs, &s_wd_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(s_wd_timer, 500 * 1000));
-
-    ESP_LOGI(TAG, "UART1 bereit: TX=GPIO%d RX=GPIO%d %d Baud",
-             LISY_TX_GPIO, LISY_RX_GPIO, LISY_BAUD);
     return ESP_OK;
 }
 
@@ -349,20 +475,20 @@ int lisy_monitor_read(uint8_t *buf, size_t max)
     int ret;
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    uart_flush_input(LISY_UART);
+    bus_flush_in();
     tx(&c, 1);
-    if (uart_read_bytes(LISY_UART, &len, 1, pdMS_TO_TICKS(RESP_TIMEOUT_MS)) != 1) {
+    if (bus_read(&len, 1, RESP_TIMEOUT_MS) != 1) {
         ret = -1;
     } else if (len == 0) {
         ret = 0;
     } else if (len > max) {
         /* Rest abwarten und verwerfen, sonst steht er vor der naechsten Antwort */
         vTaskDelay(pdMS_TO_TICKS(RESP_TIMEOUT_MS));
-        uart_flush_input(LISY_UART);
+        bus_flush_in();
         ret = -2;
     } else {
         /* 128 Byte brauchen bei 115200 Baud gut 11 ms -- der Timeout gilt fuer alle */
-        int n = uart_read_bytes(LISY_UART, buf, len, pdMS_TO_TICKS(RESP_TIMEOUT_MS));
+        int n = bus_read(buf, len, RESP_TIMEOUT_MS);
         ret = (n == len) ? len : -1;
     }
     xSemaphoreGive(s_mutex);
@@ -388,9 +514,9 @@ int lisy_get_2bytes(uint8_t cmd, uint8_t param, uint8_t *b1, uint8_t *b2)
     uint8_t resp[2];
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    uart_flush_input(LISY_UART);
+    bus_flush_in();
     tx(buf, sizeof(buf));
-    int n = uart_read_bytes(LISY_UART, resp, 2, pdMS_TO_TICKS(RESP_TIMEOUT_MS));
+    int n = bus_read(resp, 2, RESP_TIMEOUT_MS);
     xSemaphoreGive(s_mutex);
 
     if (n != 2) {
@@ -409,7 +535,7 @@ int lisy_get_string(uint8_t cmd, char *out, size_t len)
     out[0] = '\0';
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    uart_flush_input(LISY_UART);
+    bus_flush_in();
     tx(&cmd, 1);
 
     /* Bis zum NUL lesen, hoechstens len-1 Zeichen. Ein Timeout mittendrin
@@ -418,7 +544,7 @@ int lisy_get_string(uint8_t cmd, char *out, size_t len)
     int timeout = 0;
     while (p < len - 1) {
         uint8_t c;
-        if (uart_read_bytes(LISY_UART, &c, 1, pdMS_TO_TICKS(RESP_TIMEOUT_MS)) != 1) {
+        if (bus_read(&c, 1, RESP_TIMEOUT_MS) != 1) {
             timeout = 1;
             break;
         }

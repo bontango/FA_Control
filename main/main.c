@@ -35,6 +35,10 @@ void app_main(void)
      * vor lisy_init(), den UART braucht ein Schlafender nicht. */
     power_mgr_boot_gate();
 
+#if CONFIG_FA_FPGA_JTAG
+    /* TAP-Sperre vor lisy_init(): auf dem JTAG-Piggyback laeuft LISY ueber den TAP */
+    fpga_jtag_init();
+#endif
     ESP_ERROR_CHECK(lisy_init());
 
     /* Namensdateien sind Beiwerk: fehlt die Partition (Geraet nur per OTA
@@ -48,9 +52,6 @@ void app_main(void)
     rom_boot_init();
     rom_boot_start();
 
-#if CONFIG_FA_FPGA_JTAG
-    fpga_jtag_init();
-#endif
 #if CONFIG_FA_BOARD_PIGGYBACK_V7
     fpga_prog_init();
 #endif

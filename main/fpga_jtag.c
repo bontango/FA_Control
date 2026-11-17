@@ -203,10 +203,27 @@ static void shift_bytes(const uint8_t *p, size_t n, bool last_chunk)
     }
 }
 
+/* Gepackter Strom aus dem Flash: beim ersten Aufruf die ganze Laenge, dann Ende. */
+typedef struct {
+    const uint8_t *p;
+    size_t         n;
+} mem_src_t;
+
+static int src_mem(void *ctx, const uint8_t **p)
+{
+    mem_src_t *m = ctx;
+    *p = m->p;
+    int n = (int)m->n;
+    m->n = 0;
+    return n;
+}
+
 /* Entpackt den Strom in einem 32-kB-Ringpuffer (= Woerterbuch von tinfl) und
- * schiebt jedes fertige Stueck sofort. Der Decompressor und der Puffer stehen
- * nur fuer diese Dauer im Heap. */
-static esp_err_t shift_stream(const release_t *rel)
+ * schiebt jedes fertige Stueck sofort. Die gepackten Daten liefert src stueckweise
+ * (> 0 Bytes, 0 = Ende, < 0 = Fehler); so kann der Strom auch direkt aus einem
+ * HTTP-Upload kommen. Der Decompressor und der Puffer stehen nur fuer diese Dauer
+ * im Heap. */
+static esp_err_t shift_stream(fpga_jtag_src_fn src, void *ctx, size_t *shifted)
 {
     tinfl_decompressor *d = malloc(sizeof(tinfl_decompressor));
     uint8_t *dict = malloc(TINFL_LZ_DICT_SIZE);
@@ -216,9 +233,9 @@ static esp_err_t shift_stream(const release_t *rel)
         return ESP_ERR_NO_MEM;
     }
     tinfl_init(d);
-    const uint8_t *in = rel->start;
-    size_t in_left = rel->end - rel->start;
-    size_t dict_ofs = 0, total = 0;
+    const uint8_t *in = NULL;
+    size_t in_left = 0, dict_ofs = 0, total = 0;
+    bool eof = false;
     esp_err_t err = ESP_OK;
 
     /* Ein Stueck zurueckhalten, damit beim letzten Byte feststeht, dass es das
@@ -227,9 +244,20 @@ static esp_err_t shift_stream(const release_t *rel)
     bool have_held = false;
 
     while (true) {
+        if (in_left == 0 && !eof) {
+            int n = src(ctx, &in);
+            if (n < 0) {
+                ESP_LOGE(TAG, "Datenquelle meldet Fehler");
+                err = ESP_ERR_INVALID_SIZE;
+                break;
+            }
+            eof = (n == 0);
+            in_left = n;
+        }
         size_t in_sz = in_left, out_sz = TINFL_LZ_DICT_SIZE - dict_ofs;
         tinfl_status st = tinfl_decompress(d, in, &in_sz, dict, dict + dict_ofs, &out_sz,
-                                           TINFL_FLAG_PARSE_ZLIB_HEADER);
+                                           TINFL_FLAG_PARSE_ZLIB_HEADER |
+                                           (eof ? 0 : TINFL_FLAG_HAS_MORE_INPUT));
         in += in_sz;
         in_left -= in_sz;
         if (out_sz > 0) {
@@ -245,7 +273,7 @@ static esp_err_t shift_stream(const release_t *rel)
         if (st == TINFL_STATUS_DONE) {
             break;
         }
-        if (st < TINFL_STATUS_DONE || (st == TINFL_STATUS_NEEDS_MORE_INPUT && in_left == 0)) {
+        if (st < TINFL_STATUS_DONE || (st == TINFL_STATUS_NEEDS_MORE_INPUT && eof)) {
             ESP_LOGE(TAG, "Entpacken fehlgeschlagen (%d)", st);
             err = ESP_ERR_INVALID_CRC;
             break;
@@ -253,11 +281,53 @@ static esp_err_t shift_stream(const release_t *rel)
     }
     if (have_held) {
         shift_bytes(&held, 1, true);   /* auch im Fehlerfall: DR sauber verlassen */
+    } else {
+        dr_last(0);                    /* gar nichts entpackt: DR trotzdem verlassen */
+        err = (err == ESP_OK) ? ESP_ERR_INVALID_SIZE : err;
     }
     free(d);
     free(dict);
+    if (shifted) {
+        *shifted = total;
+    }
     ESP_LOGI(TAG, "Datenstrom: %u Byte geschoben", (unsigned)total);
     return err;
+}
+
+/* PROGRAM, Datenstrom, CHECK_STATUS, STARTUP, BYPASS -- die Folge, die Quartus
+ * fuer eine .sof als SVF erzeugt (make_jtag_blob.py prueft sie). Bei geoeffnetem TAP. */
+static esp_err_t sram_config(fpga_jtag_src_fn src, void *ctx, int cs_len, int cs_conf_done,
+                             int *conf_done_out, size_t *shifted)
+{
+    shift_ir(IR_PROGRAM);
+    runtest_from_pause(10000);
+    dr_enter();
+    esp_err_t err = shift_stream(src, ctx, shifted);
+
+    shift_ir(IR_CHECK_STATUS);
+    runtest_from_pause(50);
+    dr_enter();
+    int conf_done = 0;
+    for (int i = 0; i < cs_len; i++) {
+        int o = (i == cs_len - 1) ? dr_last(0) : clk(0, 0);
+        if (i == cs_conf_done) {
+            conf_done = o;
+        }
+    }
+
+    shift_ir(IR_STARTUP);
+    runtest_from_pause(40960);
+    runtest(512);
+    shift_ir(IR_BYPASS);
+    runtest_from_pause(10000);
+
+    if (conf_done_out) {
+        *conf_done_out = conf_done;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+    return conf_done ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
 esp_err_t fpga_jtag_load_release(void)
@@ -280,35 +350,37 @@ esp_err_t fpga_jtag_load_release(void)
     ESP_LOGI(TAG, "IDCODE 0x%08lX = %s", (unsigned long)id, rel->name);
 
     int64_t t0 = esp_log_timestamp();
-    shift_ir(IR_PROGRAM);
-    runtest_from_pause(10000);
-    dr_enter();
-    esp_err_t err = shift_stream(rel);
-
-    shift_ir(IR_CHECK_STATUS);
-    runtest_from_pause(50);
-    dr_enter();
     int conf_done = 0;
-    for (int i = 0; i < rel->cs_len; i++) {
-        int o = (i == rel->cs_len - 1) ? dr_last(0) : clk(0, 0);
-        if (i == rel->cs_conf_done) {
-            conf_done = o;
-        }
-    }
-
-    shift_ir(IR_STARTUP);
-    runtest_from_pause(40960);
-    runtest(512);
-    shift_ir(IR_BYPASS);
-    runtest_from_pause(10000);
+    mem_src_t m = { rel->start, (size_t)(rel->end - rel->start) };
+    esp_err_t err = sram_config(src_mem, &m, rel->cs_len, rel->cs_conf_done, &conf_done, NULL);
     tap_close();
 
     ESP_LOGI(TAG, "Leer-Design geladen in %ld ms, CHECK_STATUS CONF_DONE=%d",
              (long)(esp_log_timestamp() - t0), conf_done);
-    if (err != ESP_OK) {
-        return err;
+    return err;
+}
+
+esp_err_t fpga_jtag_load_sram(fpga_jtag_src_fn src, void *ctx, int cs_len, int cs_conf_done,
+                              fpga_jtag_sram_result_t *r)
+{
+    memset(r, 0, sizeof(*r));
+    if (cs_len < 1 || cs_len > 4096 || cs_conf_done < 0 || cs_conf_done >= cs_len) {
+        return ESP_ERR_INVALID_ARG;
     }
-    return conf_done ? ESP_OK : ESP_ERR_INVALID_STATE;
+    tap_open();
+    r->idcode = read_idcode();
+    if (r->idcode == 0 || r->idcode == 0xFFFFFFFF) {
+        tap_close();
+        return ESP_ERR_NOT_FOUND;
+    }
+    int64_t t0 = esp_timer_get_time();
+    esp_err_t err = sram_config(src, ctx, cs_len, cs_conf_done, &r->conf_done, &r->bytes);
+    tap_close();
+    r->ms = (esp_timer_get_time() - t0) / 1000;
+    ESP_LOGI(TAG, "SRAM-Design geladen: IDCODE 0x%08lX, %u Byte in %ld ms, CONF_DONE=%d (%s)",
+             (unsigned long)r->idcode, (unsigned)r->bytes, (long)r->ms, r->conf_done,
+             esp_err_to_name(err));
+    return err;
 }
 
 /* ---- Virtual JTAG (SLD-Hub) ----------------------------------------------- */
@@ -455,6 +527,12 @@ esp_err_t fpga_vjtag_test(const fpga_vjtag_hub_t *hub, int count, fpga_vjtag_tes
     tap_open();
     vir_select(hub, FPGA_VJTAG_VIR_ID);
     r->id = dr_shift(0, 32);
+    if ((r->id >> 8) != FPGA_VJTAG_ID_PROBE) {
+        /* Kein Testknoten: VIR 1 waere z.B. der Datenkanal von fa_vjtag_link, die
+         * Muster gingen als Bytes an FA-Control. */
+        tap_close();
+        return ESP_ERR_NOT_SUPPORTED;
+    }
 
     /* Rueckkanal: jeder Scan schiebt ein neues Muster hinein und liest das des
      * vorigen Scans (Update-DR speichert, Capture-DR liefert zurueck). Der erste
@@ -498,4 +576,196 @@ esp_err_t fpga_vjtag_test(const fpga_vjtag_hub_t *hub, int count, fpga_vjtag_tes
         return ESP_ERR_INVALID_RESPONSE;
     }
     return (id2 == r->id) ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
+}
+
+uint32_t fpga_vjtag_read_id(const fpga_vjtag_hub_t *hub)
+{
+    if (hub->addr == 0) {
+        return 0;
+    }
+    tap_open();
+    vir_select(hub, FPGA_VJTAG_VIR_ID);
+    uint32_t id = dr_shift(0, 32);
+    tap_close();
+    return id;
+}
+
+/* ---- fa_vjtag_link: Bytes und Steuerbit (Stufe 3) ------------------------- */
+
+/* Datenregister (VIR 1, 16 Bit): TDI [7:0] Byte, [8] tx_valid;
+ * TDO [7:0] Byte, [8] rx_valid, [9] tx_afull. */
+#define LINK_TX_VALID  0x100
+#define LINK_RX_VALID  0x100
+#define LINK_TX_AFULL  0x200
+/* Steuerregister (VIR 3, 8 Bit): TDI [0] Wert, [1] schreiben; TDO [0] CTRL_REQ. */
+#define LINK_CTRL_WRITE 0x02
+
+int fpga_vjtag_xfer(const fpga_vjtag_hub_t *hub, const uint8_t *out, int n_out,
+                    uint8_t *in, int max_in, int timeout_ms, int *scans)
+{
+    if (hub->addr == 0) {
+        return -1;
+    }
+    int got = 0, sent = 0, nscan = 0;
+    tap_open();
+    vir_select(hub, FPGA_VJTAG_VIR_DATA);
+
+    int64_t t_last = esp_timer_get_time();
+    const int64_t limit = (int64_t)timeout_ms * 1000;
+    bool afull = false;
+    while (true) {
+        uint32_t o = 0;
+        if (sent < n_out && !afull) {
+            o = LINK_TX_VALID | out[sent++];
+        }
+        uint32_t r = dr_shift(o, 16);
+        nscan++;
+        afull = (r & LINK_TX_AFULL) != 0;
+        if (r & LINK_RX_VALID) {
+            if (got < max_in) {
+                in[got] = (uint8_t)r;
+            }
+            got++;
+            t_last = esp_timer_get_time();
+        }
+        if (sent >= n_out) {
+            if (got >= max_in) {
+                break;
+            }
+            /* Pause seit dem letzten Byte: vor der ersten Antwort zaehlt timeout_ms
+             * ab dem letzten gesendeten Byte, danach 2 ms (eine UART-Zeit sind 87 us). */
+            int64_t gap = got ? 2000 : limit;
+            if (esp_timer_get_time() - t_last > gap) {
+                break;
+            }
+        } else {
+            t_last = esp_timer_get_time();
+        }
+    }
+    tap_close();
+    if (scans) {
+        *scans = nscan;
+    }
+    return got;
+}
+
+/* ---- Byte-Strom fuer lisy.c (Stufe 4) ------------------------------------- */
+
+static fpga_vjtag_hub_t s_link;
+static bool    s_link_ok;
+static int64_t s_link_checked;          /* letzte Pruefung der Kennung, us */
+
+/* Hub und Kennung zwischenspeichern; Kennung hoechstens alle 2 s neu pruefen,
+ * Fehlversuche hoechstens jede Sekunde (laeuft ein Design ohne Link, kostet jeder
+ * LISY-Befehl sonst eine Hub-Abfrage). */
+static bool link_attach(void)
+{
+    int64_t now = esp_timer_get_time();
+    if (s_link_ok && now - s_link_checked < 2000000) {
+        return true;
+    }
+    if (!s_link_ok && s_link_checked && now - s_link_checked < 1000000) {
+        return false;
+    }
+    s_link_checked = now;
+    bool was = s_link_ok;
+    s_link_ok = fpga_vjtag_probe(&s_link) == ESP_OK &&
+                FPGA_VJTAG_IS_LINK(fpga_vjtag_read_id(&s_link));
+    if (s_link_ok != was) {
+        ESP_LOGI(TAG, "fa_vjtag_link %s", s_link_ok ? "gefunden" : "nicht (mehr) da");
+    }
+    return s_link_ok;
+}
+
+void fpga_vjtag_link_invalidate(void)
+{
+    s_link_ok = false;
+    s_link_checked = 0;
+}
+
+bool fpga_vjtag_link_present(void)
+{
+    return link_attach();
+}
+
+int fpga_vjtag_link_io(const uint8_t *out, int n_out, uint8_t *in, int max_in,
+                       int want, int timeout_ms)
+{
+    if (!link_attach()) {
+        return -1;
+    }
+    int got = 0, sent = 0;
+    tap_open();
+    vir_select(&s_link, FPGA_VJTAG_VIR_DATA);
+
+    /* Senden; was dabei schon zurueckkommt, wird mitgenommen. Bei tx_afull
+     * leere Scans, bis wieder Platz ist (hoechstens 1 s, dann aufgeben). */
+    int64_t t0 = esp_timer_get_time();
+    bool afull = false, last_rx = false;
+    while (sent < n_out) {
+        uint32_t o = afull ? 0 : (LINK_TX_VALID | out[sent]);
+        uint32_t r = dr_shift(o, 16);
+        if (!afull) {
+            sent++;
+        }
+        afull = (r & LINK_TX_AFULL) != 0;
+        last_rx = (r & LINK_RX_VALID) != 0;
+        if (last_rx) {
+            if (got < max_in) {
+                in[got++] = (uint8_t)r;
+            }
+        }
+        if (esp_timer_get_time() - t0 > 1000000) {
+            ESP_LOGW(TAG, "fa_vjtag_link: Puffer zum FA bleibt voll, %d/%d Byte gesendet",
+                     sent, n_out);
+            break;
+        }
+    }
+
+    /* Empfangen: bis want Bytes da sind oder timeout_ms um ist; danach noch
+     * abholen, solange Byte auf Byte nachkommt (Mailbox liefert eins je Scan). */
+    t0 = esp_timer_get_time();
+    const int64_t limit = (int64_t)timeout_ms * 1000;
+    while (got < max_in) {
+        bool waiting = got < want && esp_timer_get_time() - t0 <= limit;
+        if (!waiting && !last_rx) {
+            break;
+        }
+        uint32_t r = dr_shift(0, 16);
+        last_rx = (r & LINK_RX_VALID) != 0;
+        if (last_rx) {
+            in[got++] = (uint8_t)r;
+        }
+    }
+    tap_close();
+    return got;
+}
+
+esp_err_t fpga_vjtag_link_ctrl(bool on)
+{
+    if (!link_attach()) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    int v = -1;
+    fpga_vjtag_ctrl(&s_link, on ? 1 : 0, &v);
+    return v == (on ? 1 : 0) ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
+}
+
+esp_err_t fpga_vjtag_ctrl(const fpga_vjtag_hub_t *hub, int set, int *val)
+{
+    if (hub->addr == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    tap_open();
+    vir_select(hub, FPGA_VJTAG_VIR_CTRL);
+    if (set >= 0) {
+        dr_shift(LINK_CTRL_WRITE | (set ? 1 : 0), 8);
+        runtest(8);                     /* Uebernahme im Systemtakt, Rueckmeldung nach TCK */
+    }
+    uint32_t r = dr_shift(0, 8);        /* ohne Schreib-Bit: nur lesen */
+    tap_close();
+    if (val) {
+        *val = r & 1;
+    }
+    return ESP_OK;
 }
