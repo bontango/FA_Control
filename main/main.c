@@ -3,12 +3,8 @@
 
 #include "app_config.h"
 #include "board.h"
-#if CONFIG_FA_BOARD_PIGGYBACK_V7
 #include "fpga_prog.h"
-#endif
-#if CONFIG_FA_FPGA_JTAG
 #include "fpga_jtag.h"
-#endif
 #include "lisy.h"
 #include "names.h"
 #include "power_mgr.h"
@@ -35,10 +31,9 @@ void app_main(void)
      * vor lisy_init(), den UART braucht ein Schlafender nicht. */
     power_mgr_boot_gate();
 
-#if CONFIG_FA_FPGA_JTAG
-    /* TAP-Sperre vor lisy_init(): auf dem JTAG-Piggyback laeuft LISY ueber den TAP */
+    /* Pins und TAP-Sperre je Board, vor lisy_init(): auf dem JTAG-Piggyback laeuft
+     * LISY ueber den TAP. Auf dem Sockel bleibt fpga_jtag gesperrt. */
     fpga_jtag_init();
-#endif
     ESP_ERROR_CHECK(lisy_init());
 
     /* Namensdateien sind Beiwerk: fehlt die Partition (Geraet nur per OTA
@@ -52,17 +47,15 @@ void app_main(void)
     rom_boot_init();
     rom_boot_start();
 
-#if CONFIG_FA_BOARD_PIGGYBACK_V7
-    fpga_prog_init();
-#endif
-#if CONFIG_FA_BOARD_JTAG_PIGGYBACK
-    /* Stufe 2: einmal beim Start den Hub abfragen und ins Log schreiben. Ohne
-     * vJTAG-Design kommt nur eine Warnung; ausfuehrlich ueber /api/vjtag. */
-    {
+    if (board_type() == BOARD_V7) {
+        fpga_prog_init();
+    }
+    if (board_type() == BOARD_JTAG) {
+        /* Stufe 2: einmal beim Start den Hub abfragen und ins Log schreiben. Ohne
+         * vJTAG-Design kommt nur eine Warnung; ausfuehrlich ueber /api/vjtag. */
         fpga_vjtag_hub_t hub;
         fpga_vjtag_probe(&hub);
     }
-#endif
 
     /* Beim Start wird bewusst nicht verbunden: solange niemand in der Oberflaeche
      * "CONNECT" drueckt, gehoert der Flipper sich selbst. Watchdog und Pulszeit

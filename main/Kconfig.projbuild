@@ -1,43 +1,6 @@
 menu "FA_Control"
 
-    choice FA_BOARD
-        prompt "Board-Variante"
-        default FA_BOARD_ATARIFA
-        help
-            Auf welchem Traeger das ESP32-C3 Supermini steckt. Die Variante
-            bestimmt die GPIO-Belegung (board_pins.h) und den OTA-Ordner auf
-            lisy.dev -- ein Image der einen Variante darf nie auf die andere.
-
-        config FA_BOARD_ATARIFA
-            bool "Sockel auf dem FA-Mainboard (AtariFA u. a.)"
-            help
-                Supermini im ESP32-Sockel des Mainboards: LISY-UART, Uebernahme-
-                Anforderung, 4er-DIP-Bank, Tiefschlaf ueber DIP1.
-
-        config FA_BOARD_PIGGYBACK_V7
-            bool "EP4CE6 dev board v7 (Piggyback)"
-            help
-                Supermini fest auf der FPGA-Piggyback v7. Zusaetzlich zu FA-Control
-                programmiert es das EPCS des FPGA (AS, nCONFIG). Keine DIP-Bank,
-                kein Tiefschlaf, Konsole ueber USB-Serial-JTAG (GPIO20/21 sind
-                CONF_DONE und TDO). Bauen mit sdkconfig.defaults.v7.
-
-        config FA_BOARD_JTAG_PIGGYBACK
-            bool "JTAG-Piggyback an P5 (ESP32_jtag_piggyback)"
-            help
-                Supermini auf der Traegerplatine ESP32_jtag_piggyback, per
-                Flachbandkabel am 10-poligen JTAG-Header P5 eines FPGA-Boards
-                ohne eigenen ESP (v3, v4.x, 10CL006). Nur TCK/TMS/TDI/TDO
-                (GPIO6/10/7/5). Kein LISY-UART, kein CTRL_REQ, keine DIP-Bank:
-                FA-Control laeuft spaeter ueber Virtual JTAG (Stufe 2 = Test,
-                ESP32-C3_EVALUIERUNG.md Abschnitt 15). Bauen mit
-                sdkconfig.defaults.jtag.
-    endchoice
-
-    config FA_FPGA_JTAG
-        bool
-        default y if FA_BOARD_PIGGYBACK_V7 || FA_BOARD_JTAG_PIGGYBACK
-        help
-            Die Variante erreicht den JTAG-Port des FPGA (fpga_jtag.c).
+    comment "Seit v1.31 ein Image fuer alle Boards (Sockel, Board v7, JTAG-Piggyback)."
+    comment "Das Board erkennt board.c beim Start, eine Build-Auswahl gibt es nicht mehr."
 
 endmenu

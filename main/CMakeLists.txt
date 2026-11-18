@@ -1,20 +1,14 @@
-set(srcs "repo.c" "board.c" "main.c" "app_config.c" "lisy.c" "fa_connect.c" "power_mgr.c" "wifi_mgr.c" "web_server.c" "fw_update.c" "names.c" "rom_boot.c")
-
-# EPCS-Programmierung per AS nur auf dem EP4CE6 dev board v7, JTAG zusaetzlich auf dem
-# JTAG-Piggyback an P5 (Kconfig.projbuild: FA_FPGA_JTAG).
-if(CONFIG_FA_FPGA_JTAG)
-    list(APPEND srcs "fpga_jtag.c")
-endif()
-if(CONFIG_FA_BOARD_PIGGYBACK_V7)
-    list(APPEND srcs "fpga_prog.c")
-endif()
+# Seit v1.31 ein Image fuer alle Boards: fpga_jtag.c (v7 + JTAG-Piggyback) und
+# fpga_prog.c (nur v7) sind immer dabei, board.c entscheidet zur Laufzeit.
+set(srcs "repo.c" "board.c" "main.c" "app_config.c" "lisy.c" "fa_connect.c" "power_mgr.c" "wifi_mgr.c" "web_server.c" "fw_update.c" "names.c" "rom_boot.c"
+         "fpga_jtag.c" "fpga_prog.c")
 
 idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS "."
     PRIV_REQUIRES esp_http_server esp_wifi nvs_flash esp_netif esp_timer esp_driver_uart esp_driver_gpio lwip
                   esp_https_ota esp_http_client app_update esp_app_format mbedtls esp_hw_support
-                  esp_partition joltwallet__littlefs esp_driver_spi esp_driver_tsens
+                  esp_partition joltwallet__littlefs esp_driver_spi esp_driver_tsens esp_adc
 )
 
 # Gzip the web page at build time and embed it into the binary
@@ -39,9 +33,6 @@ target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/web/logo.pn
 
 # Board v7/v7.1: JTAG-Datenstrom des Leer-Designs as_release, zlib-gepackt
 # (EP4CE6 ~4 kB, EP4CE22 ~7 kB). Erzeugt von fpga/as_release/make_jtag_blob.py,
-# entpackt beim Schieben (fpga_jtag.c waehlt per IDCODE). Auch auf dem JTAG-Piggyback,
-# weil fpga_jtag.c sie referenziert.
-if(CONFIG_FA_FPGA_JTAG)
-    target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/blob/as_release.jtag.z" BINARY)
-    target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/blob/as_release_e22.jtag.z" BINARY)
-endif()
+# entpackt beim Schieben (fpga_jtag.c waehlt per IDCODE).
+target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/blob/as_release.jtag.z" BINARY)
+target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/blob/as_release_e22.jtag.z" BINARY)

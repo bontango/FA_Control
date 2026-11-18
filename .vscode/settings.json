@@ -5,7 +5,8 @@
     "idf.portWin": "COM6",
     "idf.adapterTargetName": "esp32c3",
     "idf.espIdfPathWin": "C:\\Users\\bonta\\esp\\v5.5.1\\esp-idf",
-    "idf.buildPathWin": "C:\\Users\\bonta\\esp\\build\\fa",
+    "idf.buildPathWin": "C:\\Users\\bonta\\esp\\build\\fa_unified",
+    "idf.sdkconfigFilePath": "C:\\Users\\bonta\\esp\\build\\fa_unified\\sdkconfig",
     "idf.flashType": "UART",
     "files.associations": {
         "*.h": "c"

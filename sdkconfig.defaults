@@ -5,6 +5,12 @@ CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 
+# Konsole ueber USB-Serial-JTAG, auf allen Boards (seit v1.31 ein Image):
+# GPIO20/21 (UART0) sind auf dem Sockel nicht beschaltet, auf Board v7 CONF_DONE
+# und TDO. Das Boot-Log des ROM auf GPIO21 bleibt, siehe board_pins.h.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
 # Logging
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 

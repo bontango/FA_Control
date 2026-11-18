@@ -12,17 +12,12 @@
 #   - .env Datei im Projektverzeichnis (siehe .env.example)
 #
 # Verwendung:
-#   .\build_and_deploy.ps1              # Sockel-Variante (AtariFA u. a.) -> bin/
-#   .\build_and_deploy.ps1 -Board v7    # EP4CE6 dev board v7          -> bin_v7/
+#   .\build_and_deploy.ps1             -> bin/
 #
-# Die Varianten bauen in getrennten Build-Ordnern mit eigener sdkconfig und landen
-# in getrennten Serverordnern: das OTA eines Geraets sieht nur seinen eigenen
-# (fw_update.c), ein Image der falschen Variante haette falsche Pins.
-
-param(
-    [ValidateSet("atarifa", "v7")]
-    [string]$Board = "atarifa"
-)
+# Seit v1.31 gibt es EIN Image fuer alle Boards (Sockel, Board v7, JTAG-Piggyback);
+# die Firmware erkennt das Board beim Start (main/board.c). Der Parameter -Board und
+# der Ordner bin_v7/ sind entfallen. Geraete mit v7-/JTAG-Firmware bis 1.30 kommen
+# einmal per /api/fwupload auf das gemeinsame Image.
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -64,7 +59,7 @@ Get-Content ".env" | Where-Object { $_ -match '^\s*[^#\s].+=.' } | ForEach-Objec
     $envVars[$parts[0].Trim()] = $parts[1].Trim()
 }
 
-$pathVar = if ($Board -eq "v7") { "SFTP_PATH_V7" } else { "SFTP_PATH" }
+$pathVar = "SFTP_PATH"
 foreach ($var in @("SFTP_HOST", "SFTP_USER", $pathVar)) {
     if (-not $envVars.ContainsKey($var) -or [string]::IsNullOrEmpty($envVars[$var])) {
         Err "Variable '$var' fehlt oder ist leer in .env"
@@ -83,18 +78,14 @@ if ($envVars["LOCAL_RELEASES_DIR"]) {
 if ($envVars["BUILD_DIR"]) {
     $BUILD_DIR = $envVars["BUILD_DIR"]
 } else {
-    $BUILD_DIR = "C:\Users\bonta\esp\build\fa"
+    # Seit v1.31 (ein Image fuer alle Boards) ein eigener Ordner: im alten "fa" steht eine
+    # sdkconfig mit UART-Konsole, die sdkconfig.defaults nicht mehr ueberschreibt.
+    $BUILD_DIR = "C:\Users\bonta\esp\build\fa_unified"
 }
-# v7: eigener Build-Ordner samt sdkconfig, sonst ueberschreiben sich die Varianten.
-$IdfArgs = @()
+# sdkconfig im Build-Ordner, nicht die alte im Projektordner (Sockel-Variante, UART-Konsole)
+$IdfArgs    = @("-D", "SDKCONFIG=$BUILD_DIR\sdkconfig")
 $FilePrefix = "FA_Control"
-if ($Board -eq "v7") {
-    $BUILD_DIR  = "${BUILD_DIR}_v7"
-    $IdfArgs    = @("-D", "SDKCONFIG=$BUILD_DIR\sdkconfig",
-                    "-D", "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.v7")
-    $FilePrefix = "FA_Control_v7"
-}
-Info "Board-Variante: $Board (Build-Ordner $BUILD_DIR)"
+Info "Build-Ordner $BUILD_DIR (ein Image fuer alle Boards)"
 
 # -- SFTP-Passwort abfragen ---------------------------------------------------
 $securePass = Read-Host "SFTP-Passwort fuer ${SFTP_USER}@${SFTP_HOST} (Enter = nur lokal kopieren)" -AsSecureString
@@ -163,10 +154,14 @@ $outfile  = "$LOCAL_RELEASES_DIR\${FilePrefix}_v${VERSION}.bin"
 $sftpName = "${FilePrefix}_v${VERSION}.bin"
 
 try {
-    StepMsg "Build FA_Control v$VERSION ($Board)"
+    StepMsg "Build FA_Control v$VERSION"
     Info "Starte idf.py -B $BUILD_DIR $IdfArgs build ..."
     idf.py -B $BUILD_DIR @IdfArgs build
     if ($LASTEXITCODE -ne 0) { throw "idf.py build fehlgeschlagen (exit $LASTEXITCODE)" }
+    # Ein Image fuer alle Boards braucht die USB-Konsole (GPIO20/21 sind auf v7 Signalpins).
+    if (-not (Select-String -Path "$BUILD_DIR\sdkconfig" -Pattern '^CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y' -Quiet)) {
+        throw "sdkconfig in $BUILD_DIR hat keine USB-Konsole - Build-Ordner veraltet, bitte neu anlegen"
+    }
 
     Info "Kopiere $BUILD_DIR\FA_Control.bin -> $outfile"
     Copy-Item "$BUILD_DIR\FA_Control.bin" $outfile -Force

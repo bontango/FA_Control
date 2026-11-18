@@ -88,7 +88,9 @@ if ($envVars["LOCAL_RELEASES_DIR"]) {
 if ($envVars["BUILD_DIR"]) {
     $BUILD_DIR = $envVars["BUILD_DIR"]
 } else {
-    $BUILD_DIR = "C:\Users\bonta\esp\build\fa"
+    # Seit v1.31 (ein Image fuer alle Boards) ein eigener Ordner: im alten "fa" steht eine
+    # sdkconfig mit UART-Konsole, die sdkconfig.defaults nicht mehr ueberschreibt.
+    $BUILD_DIR = "C:\Users\bonta\esp\build\fa_unified"
 }
 
 # -- SFTP-Passwort abfragen ---------------------------------------------------
@@ -156,9 +158,14 @@ New-Item -ItemType Directory -Force -Path $LOCAL_RELEASES_DIR | Out-Null
 # -- Build + Copy + SFTP ------------------------------------------------------
 try {
     StepMsg "Build FA_Control v$VERSION - Full Flash Package"
-    Info "Starte idf.py -B $BUILD_DIR build ..."
-    idf.py -B $BUILD_DIR build
+    # sdkconfig im Build-Ordner, nicht die alte im Projektordner (Sockel-Variante, UART-Konsole)
+    Info "Starte idf.py -B $BUILD_DIR -D SDKCONFIG=$BUILD_DIR\sdkconfig build ..."
+    idf.py -B $BUILD_DIR -D "SDKCONFIG=$BUILD_DIR\sdkconfig" build
     if ($LASTEXITCODE -ne 0) { throw "idf.py build fehlgeschlagen (exit $LASTEXITCODE)" }
+    # Ein Image fuer alle Boards braucht die USB-Konsole (GPIO20/21 sind auf v7 Signalpins).
+    if (-not (Select-String -Path "$BUILD_DIR\sdkconfig" -Pattern '^CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y' -Quiet)) {
+        throw "sdkconfig in $BUILD_DIR hat keine USB-Konsole - Build-Ordner veraltet, bitte neu anlegen"
+    }
 
     # Quelldateien -- Pfade und Offsets stehen in $BUILD_DIR\flash_args
     $copies = @(

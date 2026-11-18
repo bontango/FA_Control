@@ -49,15 +49,20 @@ static const release_t RELEASES[] = {
 
 /* ---- Pins: direkte Registerzugriffe, gpio_set_level waere zu langsam ------ */
 
-#define M_TCK  (1UL << BOARD_PIN_JTAG_TCK)
-#define M_TMS  (1UL << BOARD_PIN_JTAG_TMS)
-#define M_TDI  (1UL << BOARD_PIN_JTAG_TDI)
+/* Pins je Board, gesetzt von fpga_jtag_init() (v7 bzw. JTAG-Piggyback). Auf dem
+ * Sockel bleibt s_ok false, und jeder Einstieg weist mit ESP_ERR_NOT_SUPPORTED ab:
+ * dort sind GPIO5..10 I2C, LISY-UART und CTRL_REQ. Die Masken als Variablen kosten
+ * nichts, W1TS/W1TC nehmen ohnehin ein Register. */
+static bool     s_ok;
+static bool     s_tms_is_led;            /* v7: GPIO8 = TMS = LED */
+static int      s_tck, s_tms, s_tdi, s_tdo;
+static uint32_t M_TCK, M_TMS, M_TDI;
 
 static inline void pin_hi(uint32_t m) { REG_WRITE(GPIO_OUT_W1TS_REG, m); }
 static inline void pin_lo(uint32_t m) { REG_WRITE(GPIO_OUT_W1TC_REG, m); }
 static inline int tdo(void)
 {
-    return (REG_READ(GPIO_IN_REG) >> BOARD_PIN_JTAG_TDO) & 1;
+    return (REG_READ(GPIO_IN_REG) >> s_tdo) & 1;
 }
 
 /* Ein Takt. TDO wird VOR der steigenden Flanke gelesen (das FPGA stellt es mit
@@ -78,9 +83,28 @@ static SemaphoreHandle_t s_tap;   /* ein Master am TAP: EPCS, vJTAG, Diagnose */
 
 void fpga_jtag_init(void)
 {
+    switch (board_type()) {
+    case BOARD_V7:
+        s_tck = V7_PIN_JTAG_TCK; s_tms = V7_PIN_JTAG_TMS;
+        s_tdi = V7_PIN_JTAG_TDI; s_tdo = V7_PIN_JTAG_TDO;
+        s_tms_is_led = true;
+        break;
+    case BOARD_JTAG:
+        s_tck = JP_PIN_JTAG_TCK; s_tms = JP_PIN_JTAG_TMS;
+        s_tdi = JP_PIN_JTAG_TDI; s_tdo = JP_PIN_JTAG_TDO;
+        s_tms_is_led = false;
+        break;
+    default:
+        s_ok = false;
+        return;
+    }
+    M_TCK = 1UL << s_tck;
+    M_TMS = 1UL << s_tms;
+    M_TDI = 1UL << s_tdi;
     if (!s_tap) {
         s_tap = xSemaphoreCreateMutex();
     }
+    s_ok = true;
 }
 
 static void tap_open(void)
@@ -88,16 +112,16 @@ static void tap_open(void)
     if (s_tap) {
         xSemaphoreTake(s_tap, portMAX_DELAY);
     }
-#ifdef BOARD_JTAG_TMS_IS_LED
-    board_led_lock(true);
-#endif
-    gpio_set_level(BOARD_PIN_JTAG_TCK, 0);
-    gpio_set_level(BOARD_PIN_JTAG_TMS, 1);
-    gpio_set_level(BOARD_PIN_JTAG_TDI, 1);
-    gpio_set_direction(BOARD_PIN_JTAG_TCK, GPIO_MODE_OUTPUT);
-    gpio_set_direction(BOARD_PIN_JTAG_TMS, GPIO_MODE_OUTPUT);
-    gpio_set_direction(BOARD_PIN_JTAG_TDI, GPIO_MODE_OUTPUT);
-    gpio_set_direction(BOARD_PIN_JTAG_TDO, GPIO_MODE_INPUT);
+    if (s_tms_is_led) {
+        board_led_lock(true);
+    }
+    gpio_set_level(s_tck, 0);
+    gpio_set_level(s_tms, 1);
+    gpio_set_level(s_tdi, 1);
+    gpio_set_direction(s_tck, GPIO_MODE_OUTPUT);
+    gpio_set_direction(s_tms, GPIO_MODE_OUTPUT);
+    gpio_set_direction(s_tdi, GPIO_MODE_OUTPUT);
+    gpio_set_direction(s_tdo, GPIO_MODE_INPUT);
     /* Test-Logic-Reset, dann Run-Test/Idle */
     for (int i = 0; i < 6; i++) {
         clk(1, 1);
@@ -111,14 +135,14 @@ static void tap_close(void)
     for (int i = 0; i < 6; i++) {
         clk(1, 1);
     }
-    gpio_set_direction(BOARD_PIN_JTAG_TCK, GPIO_MODE_INPUT);
-    gpio_set_direction(BOARD_PIN_JTAG_TDI, GPIO_MODE_INPUT);
+    gpio_set_direction(s_tck, GPIO_MODE_INPUT);
+    gpio_set_direction(s_tdi, GPIO_MODE_INPUT);
     /* TMS bleibt Ausgang, high = Ruhepegel (TAP bleibt im Test-Logic-Reset).
      * Board v7: TMS = LED, high = LED aus. JTAG-Piggyback: TCK bekommt ueber
      * board_init() den internen Pull-down, der bei INPUT erhalten bleibt. */
-#ifdef BOARD_JTAG_TMS_IS_LED
-    board_led_lock(false);
-#endif
+    if (s_tms_is_led) {
+        board_led_lock(false);
+    }
     if (s_tap) {
         xSemaphoreGive(s_tap);
     }
@@ -178,6 +202,10 @@ static uint32_t read_idcode(void)
 
 esp_err_t fpga_jtag_idcode(uint32_t *id)
 {
+    *id = 0;
+    if (!s_ok) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     tap_open();
     *id = read_idcode();
     tap_close();
@@ -332,6 +360,9 @@ static esp_err_t sram_config(fpga_jtag_src_fn src, void *ctx, int cs_len, int cs
 
 esp_err_t fpga_jtag_load_release(void)
 {
+    if (!s_ok) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     tap_open();
     uint32_t id = read_idcode();
     const release_t *rel = NULL;
@@ -366,6 +397,9 @@ esp_err_t fpga_jtag_load_sram(fpga_jtag_src_fn src, void *ctx, int cs_len, int c
     memset(r, 0, sizeof(*r));
     if (cs_len < 1 || cs_len > 4096 || cs_conf_done < 0 || cs_conf_done >= cs_len) {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_ok) {
+        return ESP_ERR_NOT_SUPPORTED;
     }
     tap_open();
     r->idcode = read_idcode();
@@ -469,6 +503,9 @@ static void vir_select(const fpga_vjtag_hub_t *h, uint32_t vir)
 esp_err_t fpga_vjtag_probe(fpga_vjtag_hub_t *hub)
 {
     memset(hub, 0, sizeof(*hub));
+    if (!s_ok) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     tap_open();
     hub->idcode = read_idcode();
     hub_read(hub);

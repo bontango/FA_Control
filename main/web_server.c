@@ -13,14 +13,12 @@
 
 #include "app_config.h"
 #include "esp_app_desc.h"
+#include "esp_app_format.h"
 #include "fa_connect.h"
 #include "fw_update.h"
-#if CONFIG_FA_BOARD_PIGGYBACK_V7
+#include "board.h"
 #include "fpga_prog.h"
-#endif
-#if CONFIG_FA_FPGA_JTAG
 #include "fpga_jtag.h"
-#endif
 #include "lisy.h"
 #include "names.h"
 #include "repo.h"
@@ -30,25 +28,16 @@
 static const char *TAG = "web";
 
 /* Kachel 09 FPGA: 1 = EP4CE6 dev board v7 (EPCS schreiben), 2 = JTAG-Piggyback
- * (Design per JTAG in den SRAM laden). Kconfig.projbuild. */
-#if CONFIG_FA_BOARD_PIGGYBACK_V7
-#define HAS_FPGA 1
-#elif CONFIG_FA_BOARD_JTAG_PIGGYBACK
-#define HAS_FPGA 2
-#else
-#define HAS_FPGA 0
-#endif
-
-/* Name der Board-Variante: in /api/status (Anzeige) und beim Firmware-Upload als
- * ?board= Pflicht. Ein Image einer anderen Variante haette eine andere Pinbelegung
- * (fw_update.c, eigener Ordner je Variante, aus demselben Grund). */
-#if CONFIG_FA_BOARD_PIGGYBACK_V7
-#define FW_BOARD_NAME "v7"
-#elif CONFIG_FA_BOARD_JTAG_PIGGYBACK
-#define FW_BOARD_NAME "jtag"
-#else
-#define FW_BOARD_NAME "socket"
-#endif
+ * (Design per JTAG in den SRAM laden), 0 = Sockel. Seit v1.31 aus der
+ * Board-Erkennung (board.c), nicht mehr aus der Build-Variante. */
+static int has_fpga(void)
+{
+    switch (board_type()) {
+    case BOARD_V7:   return 1;
+    case BOARD_JTAG: return 2;
+    default:         return 0;
+    }
+}
 
 extern const uint8_t index_html_gz_start[] asm("_binary_index_html_gz_start");
 extern const uint8_t index_html_gz_end[]   asm("_binary_index_html_gz_end");
@@ -211,7 +200,7 @@ static esp_err_t config_get_handler(httpd_req_t *req)
              (int)ci->state, fa_connect_state_str(),
              ci->hw, ci->fw_ver, ci->api_ver, ci->game,
              names_ready() ? 1 : 0, names_active(), gameid, rom_boot_ready() ? 1 : 0,
-             HAS_FPGA);
+             has_fpga());
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
 }
@@ -513,11 +502,13 @@ static esp_err_t status_get_handler(httpd_req_t *req)
     float temp;
     int rssi;
     wifi_mgr_diag(&temp, &rssi);
-    char buf[192];
+    char buf[320];
     snprintf(buf, sizeof(buf),
-             "{\"mode\":\"%s\",\"ip\":\"%s\",\"ver\":\"%s\",\"board\":\"%s\",\"temp\":%.1f,\"rssi\":%d}",
+             "{\"mode\":\"%s\",\"ip\":\"%s\",\"ver\":\"%s\",\"board\":\"%s\",\"bdet\":\"%s\","
+             "\"temp\":%.1f,\"rssi\":%d}",
              wifi_mgr_get_mode() == WIFI_MGR_MODE_AP ? "ap" : "sta",
-             ip, esp_app_get_description()->version, FW_BOARD_NAME, temp, rssi);
+             ip, esp_app_get_description()->version, board_name(), board_detect_info(),
+             temp, rssi);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
 }
@@ -758,18 +749,15 @@ static void restart_task(void *arg)
     esp_restart();
 }
 
-/* POST /api/fwupload?board=<socket|v7|jtag>  Body = FA_Control.bin (rohes App-Image).
+/* POST /api/fwupload  Body = FA_Control.bin (rohes App-Image).
  * Wie das Update vom Server, nur kommt das Image vom PC:
- *   curl --data-binary @FA_Control.bin "http://<ip>/api/fwupload?board=jtag"
+ *   curl --data-binary @FA_Control.bin "http://<ip>/api/fwupload"
+ * Seit v1.31 ein Image fuer alle Boards; ein ?board= von frueher wird ignoriert.
+ * fw_image_check() weist fremde und (ausser auf dem Sockel) alte Images ab.
  * Schreibt in die freie OTA-Partition, esp_ota_end() prueft das Image, danach
  * Boot-Partition umstellen und Neustart. Antwort vorher als JSON. */
 static esp_err_t fwupload_post_handler(httpd_req_t *req)
 {
-    char board[12];
-    if (!get_param(req, "board", board, sizeof(board)) || strcmp(board, FW_BOARD_NAME) != 0) {
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                   "Parameter board missing or wrong (this device: " FW_BOARD_NAME ")");
-    }
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
     if (!part) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No OTA partition");
@@ -800,6 +788,19 @@ static esp_err_t fwupload_post_handler(httpd_req_t *req)
             break;
         }
         timeouts = 0;
+        if (left == req->content_len) {
+            /* Erster Block: App-Beschreibung hinter Image- und Segmentkopf pruefen */
+            const size_t off = sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t);
+            const char *why = (size_t)n >= off + sizeof(esp_app_desc_t)
+                              ? fw_image_check((const esp_app_desc_t *)(buf + off))
+                              : "Image header incomplete";
+            if (why) {
+                free(buf);
+                esp_ota_abort(h);
+                ESP_LOGW(TAG, "Firmware-Upload abgewiesen: %s", why);
+                return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, why);
+            }
+        }
         err = esp_ota_write(h, buf, n);
         left -= n;
     }
@@ -1004,8 +1005,6 @@ static esp_err_t romfetch_post_handler(httpd_req_t *req)
     return rom_err(req, rom_fetch(path));
 }
 
-#if CONFIG_FA_BOARD_PIGGYBACK_V7
-
 /* ---- API: FPGA programmieren (fpga_prog.c, nur Board v7) ------------------ */
 
 /* Jeder Zugriff auf das EPCS haelt das FPGA im Reset: das Spiel startet danach
@@ -1183,10 +1182,6 @@ static esp_err_t fpgaup_post_handler(httpd_req_t *req)
     }
     return fpga_err(req, fpga_prog_write_end());
 }
-
-#endif /* CONFIG_FA_BOARD_PIGGYBACK_V7 */
-
-#if CONFIG_FA_FPGA_JTAG
 
 /* ---- API: Virtual JTAG (Stufe 2 von "FA-Control ueber JTAG") -------------- */
 
@@ -1405,8 +1400,6 @@ static esp_err_t vjtag_get_handler(httpd_req_t *req)
     return httpd_resp_sendstr(req, buf);
 }
 
-#endif /* CONFIG_FA_FPGA_JTAG */
-
 /* ---- Start --------------------------------------------------------------- */
 
 esp_err_t web_server_start(void)
@@ -1416,7 +1409,7 @@ esp_err_t web_server_start(void)
     /* Muss >= Anzahl der Eintraege in uris[] sein, sonst werden die letzten
      * stillschweigend nicht registriert und laufen in den Captive-Portal-
      * Fallback. Beim Hinzufuegen eines Endpunkts hier mitzaehlen. */
-    cfg.max_uri_handlers = 44;   /* 33 Eintraege (mit /api/fwupload), v7 38, mit /api/vjtag + /api/fpgasram 40 */
+    cfg.max_uri_handlers = 44;   /* 33 gemeinsame Eintraege + 5 v7 bzw. 2 JTAG = hoechstens 38 */
     cfg.lru_purge_enable = true;
     /* TLS-Client (fwlist via mbedTLS) laeuft im httpd-Task -> mehr Stack noetig */
     cfg.stack_size = 10240;
@@ -1459,24 +1452,39 @@ esp_err_t web_server_start(void)
         { .uri = "/api/romdel",  .method = HTTP_POST, .handler = romdel_post_handler },
         { .uri = "/api/romfetchlist", .method = HTTP_GET,  .handler = romfetchlist_get_handler },
         { .uri = "/api/romfetch",     .method = HTTP_POST, .handler = romfetch_post_handler },
-#if CONFIG_FA_BOARD_PIGGYBACK_V7
+        { .uri = "/logo.png",    .method = HTTP_GET,  .handler = logo_get_handler },
+    };
+    /* FPGA-Endpunkte nur auf dem passenden Board (board.c). Auf den anderen fallen
+     * sie in den Wildcard-Eintrag, wie vor v1.31 in den anderen Builds. */
+    const httpd_uri_t uris_v7[] = {
         { .uri = "/api/fpgainfo",   .method = HTTP_GET,  .handler = fpgainfo_get_handler },
         { .uri = "/api/fpgareconf", .method = HTTP_POST, .handler = fpgareconf_post_handler },
         { .uri = "/api/fpgadump",   .method = HTTP_GET,  .handler = fpgadump_get_handler },
         { .uri = "/api/fpgadiag",   .method = HTTP_GET,  .handler = fpgadiag_get_handler },
         { .uri = "/api/fpgaup",     .method = HTTP_POST, .handler = fpgaup_post_handler },
-#endif
-#if CONFIG_FA_FPGA_JTAG
+    };
+    const httpd_uri_t uris_jtag[] = {
         { .uri = "/api/vjtag",      .method = HTTP_GET,  .handler = vjtag_get_handler },
         { .uri = "/api/fpgasram",   .method = HTTP_POST, .handler = fpgasram_post_handler },
-#endif
-        { .uri = "/logo.png",    .method = HTTP_GET,  .handler = logo_get_handler },
-        /* Der Wildcard-Eintrag faengt alles Uebrige und muss zuletzt stehen. */
-        { .uri = "/*",           .method = HTTP_GET,  .handler = root_get_handler },
     };
+    /* Der Wildcard-Eintrag faengt alles Uebrige und muss zuletzt stehen. */
+    const httpd_uri_t uri_root =
+        { .uri = "/*",           .method = HTTP_GET,  .handler = root_get_handler };
+
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {
         httpd_register_uri_handler(server, &uris[i]);
     }
+    if (board_type() == BOARD_V7) {
+        for (size_t i = 0; i < sizeof(uris_v7) / sizeof(uris_v7[0]); i++) {
+            httpd_register_uri_handler(server, &uris_v7[i]);
+        }
+    }
+    if (board_has_jtag()) {
+        for (size_t i = 0; i < sizeof(uris_jtag) / sizeof(uris_jtag[0]); i++) {
+            httpd_register_uri_handler(server, &uris_jtag[i]);
+        }
+    }
+    httpd_register_uri_handler(server, &uri_root);
 
     ESP_LOGI(TAG, "Webserver gestartet (Port 80)");
     return ESP_OK;

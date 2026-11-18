@@ -1,5 +1,6 @@
 #include "fw_update.h"
 
+#include <stdio.h>
 #include <string.h>
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
@@ -10,23 +11,16 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "board.h"
 #include "repo.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "fw_update";
 
-/* Je Board-Variante ein eigener Ordner: ein Image der einen Variante auf der
- * anderen haette falsche Pins (v7 auf dem Sockel: DCLK/nCONFIG statt DIP-Bank;
- * Sockel-Image auf v7: Tiefschlaf ueber GPIO0 = DCLK). Ein Geraet sieht nur
- * seinen eigenen Ordner, alte Geraete kennen den neuen gar nicht. */
-#if CONFIG_FA_BOARD_PIGGYBACK_V7
-#define FW_BASE_URL   "https://lisy.dev/swrep/misc/FA_Control/bin_v7/"
-#elif CONFIG_FA_BOARD_JTAG_PIGGYBACK
-/* Noch kein Release dieser Variante -- der Ordner existiert nicht, die Liste bleibt leer. */
-#define FW_BASE_URL   "https://lisy.dev/swrep/misc/FA_Control/bin_jtag/"
-#else
+/* Seit v1.31 ein Image fuer alle Boards (board.c erkennt das Board beim Start),
+ * deshalb ein Ordner. bin_v7/ und bin_jtag/ fragen nur noch Geraete mit
+ * Firmware bis 1.30 ab. */
 #define FW_BASE_URL   "https://lisy.dev/swrep/misc/FA_Control/bin/"
-#endif
 #define FW_MAX_NAME   64
 
 static volatile fw_state_t s_state = FW_IDLE;
@@ -41,6 +35,32 @@ static char s_url[sizeof(FW_BASE_URL) + FW_MAX_NAME];
 esp_err_t fw_update_list_json(char *out, size_t out_len)
 {
     return repo_list_json(FW_BASE_URL, ".bin", out, out_len);
+}
+
+/* ---- Image-Pruefung -------------------------------------------------------- */
+
+/* Erste Version mit Board-Erkennung. Aeltere Images sind je Variante gebaut,
+ * und in bin/ lagen bis 1.30 nur die des Sockels: auf v7 oder dem JTAG-Piggyback
+ * haetten sie die falsche Pinbelegung (DIP-Bank auf DCLK/nCONFIG, UART auf TCK). */
+#define FW_UNIFIED_MAJOR 1
+#define FW_UNIFIED_MINOR 31
+
+const char *fw_image_check(const esp_app_desc_t *d)
+{
+    if (d->magic_word != ESP_APP_DESC_MAGIC_WORD ||
+        strncmp(d->project_name, esp_app_get_description()->project_name,
+                sizeof(d->project_name)) != 0) {
+        return "Not a FA_Control image";
+    }
+    if (board_type() == BOARD_SOCKET) {
+        return NULL;                    /* alle Versionen sind Sockel-Images */
+    }
+    int maj = 0, min = 0;
+    if (sscanf(d->version, "%d.%d", &maj, &min) != 2 ||
+        maj < FW_UNIFIED_MAJOR || (maj == FW_UNIFIED_MAJOR && min < FW_UNIFIED_MINOR)) {
+        return "Image older than 1.31 is for the socket board only";
+    }
+    return NULL;
 }
 
 /* ---- Update --------------------------------------------------------------- */
@@ -74,6 +94,17 @@ static void ota_task(void *arg)
         vTaskDelete(NULL);
         return;
     }
+
+    esp_app_desc_t desc;
+    err = esp_https_ota_get_img_desc(handle, &desc);
+    const char *why = (err == ESP_OK) ? fw_image_check(&desc) : "Image header unreadable";
+    if (why) {
+        esp_https_ota_abort(handle);
+        set_error(why);
+        vTaskDelete(NULL);
+        return;
+    }
+    ESP_LOGI(TAG, "Image %s %s passt auf Board %s", desc.project_name, desc.version, board_name());
 
     int image_size = esp_https_ota_get_image_size(handle);
     while (1) {

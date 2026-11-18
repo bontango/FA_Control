@@ -341,6 +341,9 @@ void fpga_prog_info(fpga_info_t *out)
 
 esp_err_t fpga_prog_reconfig(void)
 {
+    if (board_type() != BOARD_V7) {
+        return ESP_ERR_NOT_SUPPORTED;   /* nur Board v7 erreicht das EPCS */
+    }
     if (s_busy) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -355,6 +358,9 @@ esp_err_t fpga_prog_reconfig(void)
 
 esp_err_t fpga_prog_probe(void)
 {
+    if (board_type() != BOARD_V7) {
+        return ESP_ERR_NOT_SUPPORTED;   /* nur Board v7 erreicht das EPCS */
+    }
     if (s_busy) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -374,6 +380,9 @@ esp_err_t fpga_prog_probe(void)
 
 esp_err_t fpga_prog_read(uint32_t addr, uint32_t len, fpga_sink_t sink, void *ctx)
 {
+    if (board_type() != BOARD_V7) {
+        return ESP_ERR_NOT_SUPPORTED;   /* nur Board v7 erreicht das EPCS */
+    }
     if (s_busy) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -465,6 +474,9 @@ static uint8_t bb_xfer(uint8_t out)
 
 esp_err_t fpga_prog_diag(char *out, size_t len)
 {
+    if (board_type() != BOARD_V7) {
+        return ESP_ERR_NOT_SUPPORTED;   /* nur Board v7 erreicht das EPCS */
+    }
     if (s_busy) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -573,6 +585,9 @@ static esp_err_t flush_page(void)
 
 esp_err_t fpga_prog_write_begin(uint32_t addr, uint32_t size, bool rev)
 {
+    if (board_type() != BOARD_V7) {
+        return ESP_ERR_NOT_SUPPORTED;   /* nur Board v7 erreicht das EPCS */
+    }
     if (s_busy) {
         return ESP_ERR_INVALID_STATE;
     }

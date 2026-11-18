@@ -6,7 +6,30 @@
 #include "board_pins.h"
 
 /*
- * Initialisierung der GPIOs. Konfiguriert die Uebernahme-Anforderung als Ausgang
+ * Traeger des Supermini. Seit v1.31 gibt es ein Image fuer alle; board_init()
+ * stellt das Board beim Start fest (board_detect() in board.c).
+ */
+typedef enum {
+    BOARD_SOCKET = 0,   /* Sockel auf dem FA-Mainboard: LISY-UART, CTRL_REQ, DIP-Bank */
+    BOARD_V7,           /* EP4CE6 dev board v7/v7.1: zusaetzlich EPCS (AS) und JTAG */
+    BOARD_JTAG,         /* JTAG-Piggyback an P5: nur JTAG, LISY ueber Virtual JTAG */
+} board_type_t;
+
+/* Ergebnis der Erkennung; vor board_init() BOARD_SOCKET. */
+board_type_t board_type(void);
+/* "socket", "v7" oder "jtag" -- so heisst es auch in /api/status. */
+const char *board_name(void);
+/* Rohwerte der Erkennung als Klartext (Log, /api/status). */
+const char *board_detect_info(void);
+/* Das Board erreicht den JTAG-Port des FPGA (v7, JTAG-Piggyback). */
+static inline bool board_has_jtag(void)
+{
+    return board_type() != BOARD_SOCKET;
+}
+
+/*
+ * Initialisierung der GPIOs. Erkennt zuerst das Board (nur Eingaenge mit
+ * internem Pull, nichts wird getrieben), danach je Board: Konfiguriert die Uebernahme-Anforderung als Ausgang
  * (zuerst inaktiv) sowie Taster und DIP-Bank als Eingaenge.
  * Die I2C-Pins werden nur reserviert (kein Treiber-Init).
  */

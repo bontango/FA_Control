@@ -642,10 +642,10 @@ Query parameters only — there is no JSON parsing anywhere. Responses are built
 | `GET /api/state` | lamp/switch bitmaps (hex) + display texts |
 | `POST /api/reset` | LISY init/reset (`0x64`), returns `{"result":n}` |
 | `POST /api/wifi?ssid=&pass=` | store Wi-Fi credentials + reboot after 1 s |
-| `GET /api/status` | Wi-Fi mode (`ap`/`sta`), IP, firmware version, chip temperature `temp` (°C), `rssi` (dBm) — see § 9 |
+| `GET /api/status` | Wi-Fi mode (`ap`/`sta`), IP, firmware version, detected `board` (`socket`/`v7`/`jtag`) with the raw values `bdet` (§ 14.1), chip temperature `temp` (°C), `rssi` (dBm) — see § 9 |
 | `GET /api/fwlist` | `.bin` files on lisy.dev as JSON |
 | `POST /api/fwupdate?file=FA_Control_v1.13.bin` | start OTA update |
-| `/api/fpga…` | only on the EP4CE6 dev board v7, see § 14.4 |
+| `/api/fpga…` | only on the EP4CE6 dev board v7 (registered only when detected), see § 14.4 |
 | `GET /api/fwstatus` | progress (`idle`/`running`/`ok`/`error`, percent, message) |
 | `GET /api/names` | the active naming file, raw `text/plain`, chunked |
 | `GET /api/namelist` | files on the partition + active one + bytes used |
@@ -910,8 +910,8 @@ of every over-the-air update.
 
 **Increment `version.txt` before a release.**
 
-`-Board v7` does the same for the EP4CE6 dev board v7 and publishes into its own folder,
-see § 14.5.
+Since v1.31 the image is the same for every board (board detection, § 14.1); there is no
+`-Board` parameter and no second folder any more, see § 14.5.
 
 ### 12.2 Full package — `build_and_deploy_full.ps1`
 
@@ -985,7 +985,7 @@ showing tool output, and it should look like one.
 
 The user-facing side of all this is [USB_FLASH.md](USB_FLASH.md).
 
-## 14. Board variant v7 — programming the FPGA (since v1.24)
+## 14. Board v7 — programming the FPGA (since v1.24), board detection (since v1.31)
 
 On the **EP4CE6 dev board v7** the ESP32-C3 Supermini is not plugged into a mainboard
 socket but sits on the FPGA piggyback itself (connector X7). Besides the LISY link it reaches
@@ -993,19 +993,63 @@ the configuration flash (EPCS16), nCONFIG, CONF_DONE and JTAG of the FPGA, and i
 FPGA images over Wi-Fi. Hardware background and the reasoning behind the pin map:
 `N:\Projekte\misc\USB_BLASTER_DIY\ESP32-C3_SUPERMINI_PIGGYBACK.md`.
 
-### 14.1 A build-time variant
+### 14.1 One image, board detected at boot (since v1.31)
 
-The variant is a Kconfig choice (`main/Kconfig.projbuild`): `FA_BOARD_ATARIFA` (default,
-everything above) or `FA_BOARD_PIGGYBACK_V7`. It cannot be detected at run time: v7 moves
-the console from UART0 to USB-Serial-JTAG, because GPIO20/21 carry CONF_DONE and TDO, and
-that is an sdkconfig setting. `sdkconfig.defaults.v7` adds the variant on top of
-`sdkconfig.defaults`. It builds into a directory of its own with its own sdkconfig, so the two
-variants never overwrite each other:
+Up to v1.30 the board was a Kconfig choice with three builds, three sdkconfigs and three OTA
+folders. Since an image of the wrong variant drives outputs against each other (JTAG image on
+the socket: GPIO6 as TCK against the FPGA's LISY-RX output; v7 image on the socket: DCLK on
+GPIO0 against a DIP switch closed to GND), there is now **one image for all boards**.
+`board_init()` (`main/board.c`) detects the board first thing at boot and everything else
+asks `board_type()`.
+
+**Detection is passive.** Only inputs and the internal pulls (~45 kΩ) are used, nothing is
+driven. Each board already has a signature made of resistors that are there anyway:
+
+| | Socket (AtariFA, SternFA 2.0 …) | JTAG piggyback v1.00 | Board v7 / v7.1 |
+|---|---|---|---|
+| GPIO4 (ADC1_CH4) | DIP4: 0 V or open | **divider 10 k/10 k, ~1.65 V** | nCSO |
+| GPIO5 | 4.7 k pull-up (I2C SDA) | TDO, high impedance | **TCK, R2 10 k to GND** |
+| GPIO2 (ADC1_CH2) | DIP3: 0 V or open | free | **nCONFIG, R6 10 k to 3.3 V** |
+
+Order of the checks:
+
+1. **JTAG piggyback** if GPIO4 lies between 1.25 and 2.05 V both with the internal pull-up
+   and with the pull-down. The divider (5 kΩ Thevenin) holds against the internal pull
+   (±0.2 V); an open DIP pin or an FPGA pin jumps to a rail. This check is strict because
+   this is the only variant that drives GPIO6.
+2. **v7** if GPIO5 reads low with the internal pull-up **and** GPIO2 is above 2.0 V with the
+   pull-down. Harmless: 45 kΩ to GND leaves nCONFIG at ~2.7 V (no FPGA reset), and without a
+   TCK edge nothing happens in the TAP. 5 ms settling per step because of C14 (100 nF).
+3. Otherwise **socket**. It is the hardware in the field and the variant that drives the
+   fewest pins (GPIO7/10/8). A socket board without I2C pull-ups is still handled correctly;
+   the pull-up on GPIO5 is only logged.
+
+Detection takes about 30 ms. The raw values go to the log (`Board erkannt: …`) and to
+`GET /api/status` as `"board"` (`socket`/`v7`/`jtag`) and `"bdet"`, e.g.
+`"divider on GPIO4; io4 1812/1490 mV, io2 0 mV, io5 1/0"`.
+
+**Hardware rule:** the signatures are binding for every future revision. The JTAG piggyback
+keeps the 10 k/10 k divider on GPIO4, v7.x keeps R2 (TCK pull-down) and R6 (nCONFIG
+pull-up). A new carrier without either signature is treated as a socket; anything that drives
+other pins needs a signature of its own.
+
+**Console:** USB-Serial-JTAG only, on all boards (`sdkconfig.defaults`). GPIO20/21 are not
+connected on the socket and are CONF_DONE/TDO on v7. The console setting is the reason the
+variants had to be separate builds before; moving the socket to USB-Serial-JTAG removed it.
+
+**Build:** one build directory with a fresh sdkconfig. An old directory (`fa`, `fa_v7`,
+`fa_jtag`) keeps its explicit console setting; `sdkconfig.defaults` does not override it.
 
 ```powershell
-idf.py -B C:\Users\bonta\esp\build\fa_v7 -D SDKCONFIG=C:\Users\bonta\esp\build\fa_v7\sdkconfig `
-       -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.v7" build
+idf.py -B C:\Users\bonta\esp\build\fa_unified build
 ```
+
+**Firmware updates:** one OTA folder `…/FA_Control/bin/`. `fw_image_check()` (`fw_update.c`)
+reads the app description of every image (OTA and `/api/fwupload`) and refuses images that
+are not FA_Control, and, on v7 and the JTAG piggyback, images older than 1.31: those are
+per-variant builds, and `bin/` held only socket images up to 1.30. Devices with v7/JTAG
+firmware up to 1.30 still look in `bin_v7/` / `bin_jtag/`; they move to the common image
+once via `/api/fwupload`.
 
 What changes in v7:
 
@@ -1015,8 +1059,7 @@ What changes in v7:
 | DIP bank, deep sleep | DIP1 = on/off | **none**, always awake (`board_dip_read()` returns `BOARD_DIP_ACTIVE`) |
 | Push button GPIO9 | input | not read: it is TDI |
 | Blue LED GPIO8 | blinks | blinks; it is TMS as well, harmless without TCK edges |
-| Console | UART0 + USB-Serial-JTAG | USB-Serial-JTAG only |
-| OTA folder | `…/FA_Control/bin/` | `…/FA_Control/bin_v7/` |
+| Console | USB-Serial-JTAG (since 1.31, before UART0 + USB) | USB-Serial-JTAG |
 | Menu 09 FPGA | – | shown (`"fpga":1` in `/api/config`) |
 
 ### 14.2 GPIO map v7
@@ -1135,19 +1178,19 @@ A board revision v7.1 could derive nCE from the nCONFIG net through an inverter 
 | `GET /api/fpgadiag` | stage-0 diagnosis: JTAG IDCODE, AS line levels/edges idle, with nCONFIG held and after, pad read-back, 0xAB bit-banged |
 
 Errors come back as `400` with the English text that also appears in the UI.
-`max_uri_handlers` is 40 (35 entries in v7, 30 otherwise).
+`max_uri_handlers` is 44. Common entries plus the FPGA endpoints of the detected board;
+they are registered only on that board and fall into the wildcard handler elsewhere.
 
 ### 14.5 Release
 
-`.\build_and_deploy.ps1 -Board v7` builds into `C:\Users\bonta\esp\build\fa_v7`, names the
-file `FA_Control_v7_v<version>.bin` and uploads it to `SFTP_PATH_V7` (`…/FA_Control/bin_v7/`).
-`fw_update.c` takes its folder from the variant. A device never sees the other variant's
-images, and devices with older firmware do not know the new folder at all. There is no
-browser installer package for v7 yet. The first installation is `idf.py … flash` over USB.
+Since v1.31 there is one release for all boards: `.\build_and_deploy.ps1` builds into
+`C:\Users\bonta\esp\build\fa_unified` and uploads `FA_Control_v<version>.bin` to `bin/`.
+The parameter `-Board` and the folder `bin_v7/` are gone. The browser installer
+(`build_and_deploy_full.ps1`) now installs the same image on every board.
 
 ## 15. Board variant JTAG piggyback — Virtual JTAG (experimental, since 17.11.2026)
 
-The third variant, `FA_BOARD_JTAG_PIGGYBACK`, runs on the Supermini of the
+The third board, the JTAG piggyback (Kconfig `FA_BOARD_JTAG_PIGGYBACK` up to 1.30), runs on the Supermini of the
 `ESP32_jtag_piggyback` v1.00. That board plugs into the 10-pin JTAG header **P5** of the FPGA
 boards v3 / v4.x by ribbon cable. JTAG is the only link to the FPGA, so LISY will later run
 over a `sld_virtual_jtag` node in the FPGA design instead of a UART. Concept, stage plan and
@@ -1158,21 +1201,19 @@ with the test node `vjtag_probe` (GottFA80 variant `smd_hw11_cyclone_iv_v4_vj`).
 transport (stage 4) is not there yet: UART1 is installed without pins, the FA tiles have no
 counterpart.
 
-```powershell
-idf.py -B C:\Users\bonta\esp\build\fa_jtag -D SDKCONFIG=C:\Users\bonta\esp\build\fa_jtag\sdkconfig `
-       -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.jtag" build
-```
+Since v1.31 it is part of the common image (§ 14.1); the board is detected by the divider on
+GPIO4.
 
 | | Socket variant | JTAG piggyback |
 |---|---|---|
 | GPIO | LISY 7/6, control request 10 | TCK 6 (pull-down), TMS 10, TDI 7, TDO 5, Vtarget ADC 4; all high-impedance outside a JTAG session |
 | LISY, control request | UART1, GPIO10 | none yet (stage 4: over Virtual JTAG) |
 | DIP bank, deep sleep | DIP1 = on/off | none, always awake |
-| Console | UART0 + USB-Serial-JTAG | unchanged (GPIO20/21 are free) |
-| OTA folder | `…/FA_Control/bin/` | `…/FA_Control/bin_jtag/` (does not exist yet) |
+| Console | USB-Serial-JTAG | USB-Serial-JTAG |
 
-`CONFIG_FA_FPGA_JTAG` (hidden, set for v7 and this variant) builds `fpga_jtag.c`. A mutex
-there serialises every TAP access. New in `fpga_jtag.c`: `fpga_vjtag_probe()` reads
+`fpga_jtag_init()` takes the pins from the detected board (v7: 5/8/9/21, JTAG piggyback:
+6/10/7/5); on the socket every entry point returns `ESP_ERR_NOT_SUPPORTED`. A mutex there
+serialises every TAP access. New in `fpga_jtag.c`: `fpga_vjtag_probe()` reads
 `HUB_INFO`/`NODE_INFO` (USER1 = 0x00E, USER0 = 0x00C). It takes the VIR width *n* from
 `HUB_INFO` — the hub reports n = 4 although the node is built with `sld_ir_width = 2`.
 `fpga_vjtag_test()` reads the node ID and runs the 32-bit echo. `main.c` probes the hub once at boot and logs the
@@ -1188,7 +1229,7 @@ USB and connect the cable; the board powers the Supermini.
 |---|---|
 | `GET /api/vjtag[?n=1000][&dead=1]` | hub enumeration, then by node ID: **"GF8x"** test node `vjtag_probe`: `id`, `echo_total`, `echo_ok`, `fail_out`, `fail_in`, `echo_us`, `bytes_per_s`, `session_us`, `ok` (`n` = echo scans, 1…100 000). **"FALx"** `fa_vjtag_link`: LISY commands 0/1/2/110 as `hw`/`ver`/`api`/`mon` (`rx`, `scans`, `us`, `str`, `hex`), control bit `ctrl_set1`/`ctrl_set0`, with `dead=1` also `ctrl_dead` (set, 2.5 s idle, must read 0). The echo test never runs against the link — it would send bytes to FA control |
 
-| `POST /api/fwupload?board=<socket\|v7\|jtag>` | (all variants) firmware upload from the PC: body = `FA_Control.bin`, written to the free OTA partition, checked by `esp_ota_end()`, then boot partition switched and restart after 1 s. `board` must match the device's own variant, otherwise `400`. `curl --data-binary @FA_Control.bin "http://<ip>/api/fwupload?board=jtag"` |
+| `POST /api/fwupload` | (all boards) firmware upload from the PC: body = `FA_Control.bin`, checked by `fw_image_check()` on the first block (§ 14.1), written to the free OTA partition, checked by `esp_ota_end()`, then boot partition switched and restart after 1 s. A `?board=` from up to 1.30 is ignored. `curl --data-binary @FA_Control.bin "http://<ip>/api/fwupload"` |
 | UI tile 09 FPGA (`"fpga":2`) | JTAG piggyback only: STATUS via `GET /api/vjtag?info=1` (hub and node ID only — no LISY bytes, no control bit, safe during a connection; `kind` = `full`/`monitor`/`control` from the link ID "FA" + L/M/C + board ID), LOAD A DESIGN = file picker for a `.fjz` → `POST /api/fpgasram`. Loading ends a running connection first (like DISCONNECT) |
 | `POST /api/fpgasram` | load any design into the FPGA SRAM over JTAG. Body = `.fjz` from `fpga/as_release/make_jtag_blob.py --sof <x.sof> --out <x.fjz>` (header `FJZ1`, CHECK_STATUS length and CONF_DONE bit as u16 LE, then zlib). Inflated and shifted while it arrives. Answer: `ok`, `err`, `idcode`, `conf_done`, `bytes`, `ms`. SRAM only — after power-off the EPCS design boots again. The IDCODE only names the die, so load only designs built for this board |
 

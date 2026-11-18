@@ -6,8 +6,8 @@
 #include "esp_err.h"
 
 /*
- * FPGA-Programmierung auf dem EP4CE6 dev board v7 -- nur in dieser Variante
- * gebaut (CONFIG_FA_BOARD_PIGGYBACK_V7).
+ * FPGA-Programmierung auf dem EP4CE6 dev board v7. Seit v1.31 immer gebaut; auf
+ * anderen Boards (board_type() != BOARD_V7) melden die Einstiege ESP_ERR_NOT_SUPPORTED.
  *
  * WEG. Der ESP beschreibt das EPCS als gewoehnlicher SPI-Master (Active Serial)
  * und startet das FPGA danach per nCONFIG-Puls aus dem neuen Image; CONF_DONE
