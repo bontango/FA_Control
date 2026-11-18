@@ -134,10 +134,10 @@ tbody tr:nth-child(even) { background: #f3f3f3; }
 <body>
 <h1 id="fa_control">FA_Control</h1>
 <p><strong>LISY pinball service tool on an ESP32-C3</strong></p>
-<p><strong>Firmware version 1.27</strong></p>
+<p><strong>Firmware version 1.32</strong></p>
 <p><strong>user manual</strong></p>
 <p><a href="mailto:ralf@lisy.dev">ralf@lisy.dev</a></p>
-<p>v1.27 06.11.2026</p>
+<p>v1.32 18.11.2026</p>
 <blockquote>
 <p>German version: <a href="FA_Control_Bedienungsanleitung.html">FA_Control_Bedienungsanleitung.html</a>.
 French version: <a href="FA_Control_manuel_utilisateur.html">FA_Control_manuel_utilisateur.html</a>.
@@ -259,7 +259,8 @@ network <strong><code>FA-Control</code></strong>. There is no
 password.</li>
 <li>As a rule the control page <strong>opens by itself</strong>. If it
 does not, enter <code>http://192.168.4.1</code> in your browser.</li>
-<li>On the page, click the tile <strong>06 · WI-FI</strong>.</li>
+<li>On the page, press <strong>CONFIG MODE</strong> at the top, then
+click the tile <strong>06 · WI-FI</strong>.</li>
 <li>Under <strong>NETWORK</strong>, enter the name of your home network
 in <strong>SSID</strong> and its password in
 <strong>PASSWORD</strong>.</li>
@@ -284,16 +285,44 @@ will find it in your router&#39;s device list.</p>
 <p>The top right of the page also shows the installed version, the mode
 (<code>STA</code> = on your home network, <code>AP</code> = its own
 network) and the IP address.</p>
-<p>From firmware 1.26 on the page opens in <strong>monitor mode</strong>
-(<a href="#8-monitor-mode">chapter 8</a>) when the board supports it; the
-game keeps running. <strong>CONTROL MODE</strong> at the top leads to the
-home screen with the tile menu. Without monitor support, or while control
-is active, the page opens on the home screen.</p>
+<p>The switch at the top of the page selects one of three modes:</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>What it is for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>MONITOR MODE</strong></td>
+<td>watch a running game (<a href="#8-monitor-mode">chapter 8</a>)</td>
+</tr>
+<tr>
+<td><strong>CONTROL MODE</strong></td>
+<td>take the machine over: connection, tiles 01 to 05 (<a href="#6-connecting">chapter 6</a>)</td>
+</tr>
+<tr>
+<td><strong>CONFIG MODE</strong></td>
+<td>set up the device: tiles 06 to 09 — Wi-Fi and firmware, naming
+files, game roms, FPGA. Works without any connection to the game</td>
+</tr>
+</tbody>
+</table>
+<p>The page opens in <strong>monitor mode</strong> when the machine
+supports it; the game keeps running. While control is active it opens in
+control mode. If neither is possible — the machine is switched off, or
+(on the JTAG piggyback) the FPGA design has no FA link — it opens in
+<strong>config mode</strong>, with the reason in the bar.</p>
+<p>A mode that the board or the running FPGA design cannot do is
+<strong>greyed out</strong>; hovering it tells you why. Config mode is
+always available, and it only shows the tiles that work on your
+device.</p>
 <hr />
 <h2 id="6-connecting">6. Connecting</h2>
-<p>The <strong>home screen is the connection procedure</strong>. It
-shows a bar with the connection state, three buttons, and the tile menu
-below.</p>
+<p>The <strong>home screen of control mode is the connection
+procedure</strong>. It shows a bar with the connection state, three
+buttons, and the tiles 01 to 05 below.</p>
 <p>Tiles <strong>01 to 05 are greyed out and cannot be clicked</strong>
 while there is no connection. That is intentional: FA_Control only
 learns after connecting how many lamps, coils, switches, sounds and
@@ -342,9 +371,17 @@ that the connector between FA_Control and the board is seated
 properly.</td>
 </tr>
 <tr>
-<td><strong>NO ANSWER - CHECK WIRING AND POWER</strong></td>
-<td>Nobody is answering. Is the machine powered on? Is the cable seated?
-Is matching firmware actually running on the other side?</td>
+<td><strong>NO ANSWER FROM THE FA BOARD - IS THE GAME SWITCHED
+ON?</strong></td>
+<td>Nobody is answering. Is the machine powered on? Is the module
+seated? Is matching firmware actually running on the other side?</td>
+</tr>
+<tr>
+<td><strong>FPGA DESIGN HAS NO FA LINK - LOAD ONE UNDER CONFIG &gt;
+FPGA</strong></td>
+<td>Only on the JTAG piggyback: the FPGA runs a design without the FA
+link, for example the released <code>.jic</code>. Load a design with the
+link under <strong>CONFIG MODE › 09 · FPGA</strong>.</td>
 </tr>
 <tr>
 <td><strong>CONTROL DENIED</strong></td>
@@ -362,8 +399,10 @@ have gone out of step — for example when the lamp display and reality
 disagree.</p>
 <hr />
 <h2 id="7-the-menus">7. The menus</h2>
-<p>All control menus are reached through the tile menu on the home
-screen. <strong>◀ MENU</strong> at the top left takes you back.</p>
+<p>Tiles <strong>01 to 05</strong> are on the home screen of
+<strong>control mode</strong>, tiles <strong>06 to 09</strong> on the
+page of <strong>config mode</strong>. <strong>◀ MENU</strong> at the top
+left takes you back to the page you came from.</p>
 <h3 id="01--lamps">01 · LAMPS</h3>
 <p>A grid with one tile per lamp, numbered from 0 up. <strong>One click
 switches the lamp on, the next one switches it off again.</strong> Lamps
@@ -424,10 +463,10 @@ text appears <strong>right-aligned</strong> on the real display of the
 machine. Digits and spaces are allowed; a space leaves that position
 dark.</p>
 <p><strong>Alphanumeric displays</strong> (since 1.28, so far GottFA80
-board v7.1 with a System 80B game): the label says
-<em>characters</em> instead of digits, and the readout shows text.
-Letters, digits and punctuation are allowed; they are sent in upper case
-and <strong>left-aligned</strong>. A GottFA80 with an 80B game has two
+board v7.1 with a System 80B game): the label says <em>characters</em>
+instead of digits, and the readout shows text. Letters, digits and
+punctuation are allowed; they are sent in upper case and
+<strong>left-aligned</strong>. A GottFA80 with an 80B game has two
 displays, one per row, with 20 characters each.</p>
 <h3 id="07--names">07 · NAMES</h3>
 <p>Optional. Tiles are numbered — this menu lets you give them
@@ -550,13 +589,13 @@ switches and sounds start at 0</strong> — the same numbering the tiles
 use. Lines starting with <code>#</code> are comments. You only need the
 entries you care about; everything else stays numeric. Maximum 32 kB per
 file.</p>
-<p><strong>Exception — switches on AtariFA:</strong> the switch tiles show
-the number the game's own self test uses, so you can compare them
+<p><strong>Exception — switches on AtariFA:</strong> the switch tiles
+show the number the game&#39;s own self test uses, so you can compare them
 directly. The first 16 positions are the programming DIP switches (and
 the test switch); they have no self-test number and appear as
-<strong>D0</strong> to <strong>D15</strong>. Hover over a tile to see its
-wire number as well, e.g. <em>41 (wire 56)</em>. The naming file keeps
-the wire number: self-test number + 15.</p>
+<strong>D0</strong> to <strong>D15</strong>. Hover over a tile to see
+its wire number as well, e.g. <em>41 (wire 56)</em>. The naming file
+keeps the wire number: self-test number + 15.</p>
 <blockquote>
 <p>If tile 07 is missing entirely, your device has no storage for naming
 files. That happens when it was only ever updated over the air: the
@@ -601,41 +640,69 @@ counts. About 60 SternFA games fit.</p>
 naming files survive that installation.</p>
 </blockquote>
 <h3 id="09--fpga">09 · FPGA</h3>
-<p>Only on the <strong>FPGA board v7</strong> (EP4CE6 dev board v7),
-where the module sits directly on the FPGA board, from firmware 1.24 on.
-From firmware 1.27 on also on the <strong>FPGA board v7.1</strong> with the
-larger EP4CE22; FA_Control recognises the chip by itself.
-On every other board this tile is not shown.</p>
-<p>Here FA_Control writes the configuration flash (EPCS) of the FPGA
-over Wi-Fi — no USB-Blaster, no Quartus. <strong>Every action in this
-menu holds the FPGA in reset:</strong> the game restarts, and a
-connection or monitor mode that is running ends. The page asks before it
-starts. CONNECT is not needed.</p>
+<p>Only where FA_Control can reach the FPGA — on the plain socket of an
+FA board this tile is not shown:</p>
+<table>
+<thead>
+<tr>
+<th>Board</th>
+<th>What this menu can do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>FPGA board v7 / v7.1</strong> (module sits on the FPGA
+board)</td>
+<td>everything below</td>
+</tr>
+<tr>
+<td><strong>JTAG piggyback</strong> (module on the JTAG header of a
+board)</td>
+<td>STATUS and TEST A DESIGN. Installing permanently follows in a later
+firmware</td>
+</tr>
+</tbody>
+</table>
+<p>FA_Control recognises the board and the chip by itself (EP4CE6/E10,
+EP4CE15, EP4CE22, 10CL006). <strong>Every action in this menu replaces
+the running design:</strong> the game restarts, and a connection or
+monitor mode that is running ends. The page asks before it starts.
+CONNECT is not needed.</p>
 <ul>
-<li><strong>STATUS</strong> — <strong>CONF_DONE</strong> shows whether
-the FPGA is running (<strong>HIGH</strong>) or has no valid image
-(<strong>LOW</strong>). <strong>IDENTIFY EPCS</strong> reads type and
-size of the flash, <strong>RECONFIGURE</strong> restarts the FPGA from
-the flash, just like switching it off and on.</li>
-<li><strong>WRITE A NEW IMAGE</strong> — choose the <code>.rbf</code>
-file of the FPGA firmware and press <strong>WRITE</strong>. Leave
-<strong>REVERSE BITS (.RBF)</strong> ticked for <code>.rbf</code> files.
-It takes a few seconds; the image is read back and compared, then the
-FPGA restarts with it. Only the first 512 kB are written, the game ROMs
-stored behind them stay as they are.</li>
-<li><strong>WRITE GAME ROMS</strong> — the game ROMs, so that the board
-boots without an SD card. Choose the ROM file (for GottFA1_PLuS
-<code>gottfa1_roms.bin</code>) and keep the address
-<code>0x080000</code>. The FPGA image is never touched.</li>
-<li><strong>READ BACK</strong> — downloads a range of the flash as a
-file, for example to keep a copy of the current image before you write a
-new one.</li>
+<li><strong>STATUS</strong> — which FPGA answers, which design is
+running and whether it has the FA link (needed for monitor and control
+mode on the JTAG piggyback). On the v7 board also
+<strong>CONF_DONE</strong> — whether the FPGA is running
+(<strong>HIGH</strong>) or has no valid image (<strong>LOW</strong>) —
+and the configuration flash (EPCS). <strong>CHECK</strong> asks again,
+<strong>IDENTIFY EPCS</strong> reads type and size of the flash,
+<strong>RECONFIGURE</strong> restarts the FPGA from the flash, just like
+switching it off and on.</li>
+<li><strong>INSTALL PERMANENTLY</strong> — choose the
+<strong><code>.jic</code></strong> from Quartus (the same file a
+USB-Blaster would program) and press <strong>WRITE</strong>. If the
+<code>.jic</code> also holds game roms, they are written too. FA_Control
+checks that the file is meant for this FPGA. A <code>.rbf</code> or
+<code>.rpd</code> writes the FPGA image only; leave <strong>REVERSE BITS
+(.RBF)</strong> ticked for <code>.rbf</code> files. It takes a few
+seconds; everything is read back and compared, then the FPGA restarts
+with it. The image may be at most 512 kB.</li>
+<li><strong>TEST A DESIGN (UNTIL POWER-OFF)</strong> — loads a design
+straight into the FPGA, without touching the flash: a <code>.fjz</code>
+file made from the Quartus <code>.sof</code>. It runs until the machine
+is switched off, then the installed design starts again. This is how the
+JTAG piggyback gets a design with the FA link.</li>
+<li><strong>ADVANCED</strong> (click to open) — <strong>WRITE GAME ROMS
+TO THE EPCS</strong> for a ROM file on its own (for GottFA1_PLuS
+<code>gottfa1_roms.bin</code>, address <code>0x080000</code>; a
+<code>.jic</code> with game roms does this by itself), and <strong>READ
+BACK</strong>, which downloads a range of the flash as a file, for
+example to keep a copy before you write a new image.</li>
 </ul>
 <blockquote>
 <p>If writing breaks off — Wi-Fi gone, page closed — the FPGA does not
 start until a complete image is in the flash. Nothing is broken: write
-the image again. FA_Control itself keeps running and stays
-reachable.</p>
+it again. FA_Control itself keeps running and stays reachable.</p>
 </blockquote>
 <p>On the v7 board there is no DIP switch bank: FA_Control is on
 whenever the machine is. <strong>Mind the mounting height:</strong> the
@@ -653,29 +720,29 @@ are doing. That is the tool for faults that only show up during a game:
 a lamp that never lights, a coil that is never fired, a switch that does
 not register.</p>
 <p>The switch at the top of the page, <strong>MONITOR MODE | CONTROL
-MODE</strong>, selects the mode. From firmware 1.26 on, monitor mode starts
-by itself when the page is opened. On a wide window everything fits on one
-screen, with displays and switches at the top; on a phone the fields stay
-one below the other.</p>
+MODE | CONFIG MODE</strong>, selects the mode (<a href="#5-opening-the-page">chapter 5</a>). Monitor mode starts by itself
+when the page is opened. On the JTAG piggyback it needs an FPGA design
+with the FA link; without one the button is greyed out. On a wide window
+everything fits on one screen, with displays and switches at the top; on
+a phone the fields stay one below the other.</p>
 <p><strong>How to use it:</strong></p>
 <ol type="1">
 <li>Open the page, or press <strong>MONITOR MODE</strong> at the top. If
-you are connected in control mode, FA_Control asks first: handing control back restarts
-the game.</li>
+you are connected in control mode, FA_Control asks first: handing
+control back restarts the game.</li>
 <li>The bar turns green and reads <strong>MONITOR MODE - THE GAME KEEPS
-RUNNING</strong>. The page is refreshed twice a second and
-shows:
+RUNNING</strong>. The page is refreshed twice a second and shows:
 <ul>
 <li><strong>STATE</strong> — whether a game is running or attract mode
 is on, plus device and game.</li>
-<li><strong>DISPLAYS</strong> — the digits as the machine shows
-them (the text on alphanumeric displays).</li>
+<li><strong>DISPLAYS</strong> — the digits as the machine shows them
+(the text on alphanumeric displays).</li>
 <li><strong>LAMPS</strong> — lit lamps are filled copper.</li>
 <li><strong>COILS</strong> — every pulse lights its tile for one second.
 Even the shortest pulse is never missed.</li>
 <li><strong>SOUND</strong> — the same for the sound lines. On GottFA1
-these are the 10, 100 and 1000 tones. Boards without sound lines, such as
-SternFA, do not show this field.</li>
+these are the 10, 100 and 1000 tones. Boards without sound lines, such
+as SternFA, do not show this field.</li>
 <li><strong>SWITCHES</strong> — closed switches are filled green.</li>
 </ul></li>
 <li>Press <strong>CONTROL MODE</strong> to leave. The monitor stops, and
@@ -686,16 +753,16 @@ tiles here too. Lamps, coils, displays and sound cannot be switched in
 monitor mode — FA_Control refuses those commands until you connect in
 control mode.</p>
 <p><strong>Simulating switches</strong> (from firmware 1.26, SternFA HW
-2.0 from 5.3.2, with option DIP 4 ON; the DIP is read at boot, so changing
-it needs a reset). Click a tile under <strong>SWITCHES</strong> to close
-that switch for the running game; a dashed frame marks it. Click again or
-press <strong>RELEASE ALL</strong> to open it. Several switches can be
-closed at once. A simulated switch can only close: a switch that is really
-closed stays closed.</p>
-<p><strong>Caution:</strong> the game reacts as to a real switch, so coils
-may fire. Keep hands out of the machine. All simulated switches are
-released about 2 seconds after the page stops asking, for instance when you
-leave it or the connection drops.</p>
+2.0 from 5.3.2, with option DIP 4 ON; the DIP is read at boot, so
+changing it needs a reset). Click a tile under <strong>SWITCHES</strong>
+to close that switch for the running game; a dashed frame marks it.
+Click again or press <strong>RELEASE ALL</strong> to open it. Several
+switches can be closed at once. A simulated switch can only close: a
+switch that is really closed stays closed.</p>
+<p><strong>Caution:</strong> the game reacts as to a real switch, so
+coils may fire. Keep hands out of the machine. All simulated switches
+are released about 2 seconds after the page stops asking, for instance
+when you leave it or the connection drops.</p>
 <p><strong>If it does not start</strong>, the reason is in the bar.
 <strong>START MONITOR</strong> tries again.</p>
 <table>
@@ -718,7 +785,8 @@ HARDWARE</strong></td>
 both.</td>
 </tr>
 <tr>
-<td><strong>NO ANSWER - CHECK WIRING AND POWER</strong></td>
+<td><strong>NO ANSWER FROM THE FA BOARD - IS THE GAME SWITCHED
+ON?</strong></td>
 <td>As in chapter 6: nobody is answering.</td>
 </tr>
 </tbody>
@@ -748,9 +816,9 @@ the device must be joined to your home network — its own
 <code>FA-Control</code> network has no internet connection, and the
 button is disabled there.</p>
 <ol type="1">
-<li>Open tile <strong>06 · WI-FI</strong>, section
-<strong>FIRMWARE</strong>. <strong>INSTALLED VERSION</strong> shows what
-is running right now.</li>
+<li>Press <strong>CONFIG MODE</strong> and open tile <strong>06 ·
+WI-FI</strong>, section <strong>FIRMWARE</strong>. <strong>INSTALLED
+VERSION</strong> shows what is running right now.</li>
 <li>Press <strong>LOAD VERSIONS</strong>. After a moment a dropdown
 appears with the available versions, newest first.</li>
 <li>Pick a version and press <strong>INSTALL UPDATE</strong>. Confirm

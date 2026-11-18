@@ -134,10 +134,10 @@ tbody tr:nth-child(even) { background: #f3f3f3; }
 <body>
 <h1 id="fa_control">FA_Control</h1>
 <p><strong>LISY-Servicegerät für Flipper auf einem ESP32-C3</strong></p>
-<p><strong>Firmware-Version 1.27</strong></p>
+<p><strong>Firmware-Version 1.32</strong></p>
 <p><strong>Bedienungsanleitung</strong></p>
 <p><a href="mailto:ralf@lisy.dev">ralf@lisy.dev</a></p>
-<p>v1.27 06.11.2026</p>
+<p>v1.32 18.11.2026</p>
 <blockquote>
 <p>Deutsche Fassung von <a href="FA_Control_user_manual.html">FA_Control_user_manual.html</a>.
 Version française : <a href="FA_Control_manuel_utilisateur.html">FA_Control_manuel_utilisateur.html</a>.
@@ -269,7 +269,8 @@ Passwort gibt es nicht.</li>
 <li>In aller Regel öffnet sich die Bedienseite <strong>von
 selbst</strong>. Falls nicht, rufen Sie im Browser
 <code>http://192.168.4.1</code> auf.</li>
-<li>Auf der Seite die Kachel <strong>06 · WI-FI</strong> anklicken.</li>
+<li>Auf der Seite oben <strong>CONFIG MODE</strong> drücken, dann die
+Kachel <strong>06 · WI-FI</strong> anklicken.</li>
 <li>Unter <strong>NETWORK</strong> bei <strong>SSID</strong> den Namen
 Ihres Heimnetzes eintragen und bei <strong>PASSWORD</strong> das
 zugehörige Passwort.</li>
@@ -296,16 +297,47 @@ war — und Sie finden sie in der Geräteliste Ihres Routers.</p>
 <p>Ganz oben rechts zeigt die Seite außerdem die installierte Version,
 die Betriebsart (<code>STA</code> = im Heimnetz, <code>AP</code> =
 eigenes Netz) und die IP-Adresse an.</p>
-<p>Ab Firmware 1.26 öffnet die Seite im <strong>Monitor-Modus</strong>
-(<a href="#8-monitor-modus">Kapitel 8</a>), wenn die Platine ihn unterstützt;
-das Spiel läuft dabei weiter. <strong>CONTROL MODE</strong> oben führt zur
-Startseite mit dem Kachelmenü. Ohne Monitor-Unterstützung oder bei aktiver
-Kontrolle öffnet die Seite auf der Startseite.</p>
+<p>Der Umschalter oben auf der Seite wählt einen von drei Modi:</p>
+<table>
+<thead>
+<tr>
+<th>Modus</th>
+<th>Wofür</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>MONITOR MODE</strong></td>
+<td>einem laufenden Spiel zuschauen (<a href="#8-monitor-modus">Kapitel
+8</a>)</td>
+</tr>
+<tr>
+<td><strong>CONTROL MODE</strong></td>
+<td>die Anlage übernehmen: Verbindung, Kacheln 01 bis 05 (<a href="#6-verbinden">Kapitel 6</a>)</td>
+</tr>
+<tr>
+<td><strong>CONFIG MODE</strong></td>
+<td>das Gerät einrichten: Kacheln 06 bis 09 — WLAN und Firmware,
+Namensdateien, Spiel-ROMs, FPGA. Geht ohne jede Verbindung zum
+Spiel</td>
+</tr>
+</tbody>
+</table>
+<p>Die Seite öffnet im <strong>Monitor-Modus</strong>, wenn die Anlage
+ihn unterstützt; das Spiel läuft dabei weiter. Besteht gerade Kontrolle,
+öffnet sie im Control-Modus. Geht beides nicht — die Anlage ist aus,
+oder (am JTAG-Piggyback) das FPGA-Design hat keinen FA-Link —, öffnet
+sie im <strong>Config-Modus</strong>, der Grund steht im Balken.</p>
+<p>Ein Modus, den die Platine oder das laufende FPGA-Design nicht kann,
+ist <strong>ausgegraut</strong>; fährt man mit der Maus darüber, steht
+dort der Grund. Der Config-Modus geht immer und zeigt nur die Kacheln,
+die auf Ihrem Gerät funktionieren.</p>
 <hr />
 <h2 id="6-verbinden">6. Verbinden</h2>
-<p>Die <strong>Startseite ist der Verbindungsaufbau</strong>. Sie sehen
-dort einen Balken mit dem Verbindungszustand, drei Schaltflächen und
-darunter das Kachelmenü.</p>
+<p>Die <strong>Startseite des Control-Modus ist der
+Verbindungsaufbau</strong>. Sie sehen dort einen Balken mit dem
+Verbindungszustand, drei Schaltflächen und darunter die Kacheln 01 bis
+05.</p>
 <p>Die Kacheln <strong>01 bis 05 sind grau und nicht
 anklickbar</strong>, solange keine Verbindung besteht. Das ist Absicht:
 FA_Control weiß erst nach dem Verbinden, wie viele Lampen, Spulen,
@@ -357,10 +389,18 @@ bemerkt. Prüfen Sie den Sitz des Steckers zwischen FA_Control und der
 Platine.</td>
 </tr>
 <tr>
-<td><strong>NO ANSWER - CHECK WIRING AND POWER</strong></td>
+<td><strong>NO ANSWER FROM THE FA BOARD - IS THE GAME SWITCHED
+ON?</strong></td>
 <td>Es meldet sich niemand. Ist die Anlage eingeschaltet? Sitzt das
-Verbindungskabel richtig? Läuft auf der Gegenseite überhaupt eine
-passende Firmware?</td>
+Modul richtig? Läuft auf der Gegenseite überhaupt eine passende
+Firmware?</td>
+</tr>
+<tr>
+<td><strong>FPGA DESIGN HAS NO FA LINK - LOAD ONE UNDER CONFIG &gt;
+FPGA</strong></td>
+<td>Nur am JTAG-Piggyback: Im FPGA läuft ein Design ohne FA-Link, etwa
+die veröffentlichte <code>.jic</code>. Laden Sie unter <strong>CONFIG
+MODE › 09 · FPGA</strong> ein Design mit Link.</td>
 </tr>
 <tr>
 <td><strong>CONTROL DENIED</strong></td>
@@ -378,9 +418,11 @@ etwas aus dem Tritt geraten scheint — etwa wenn Lampenanzeige und
 Wirklichkeit auseinanderlaufen.</p>
 <hr />
 <h2 id="7-die-menüs">7. Die Menüs</h2>
-<p>Alle Steuerungsmenüs erreichen Sie über das Kachelmenü der
-Startseite. Mit <strong>◀ MENU</strong> oben links kommen Sie
-zurück.</p>
+<p>Die Kacheln <strong>01 bis 05</strong> stehen auf der Startseite des
+<strong>Control-Modus</strong>, die Kacheln <strong>06 bis 09</strong>
+auf der Seite des <strong>Config-Modus</strong>. Mit <strong>◀
+MENU</strong> oben links kommen Sie auf die Seite zurück, von der Sie
+kamen.</p>
 <h3 id="01--lamps">01 · LAMPS</h3>
 <p>Ein Raster mit einer Kachel je Lampe, von 0 an durchnummeriert.
 <strong>Ein Klick schaltet die Lampe ein, der nächste wieder
@@ -579,10 +621,10 @@ bleibt numerisch. Höchstens 32 kB je Datei.</p>
 zeigen die Nummer, die auch der Selbsttest des Spiels anzeigt, damit Sie
 direkt vergleichen können. Die ersten 16 Stellen sind die
 Programmier-DIP-Schalter (und der Testschalter); sie haben keine
-Selbsttest-Nummer und heißen <strong>D0</strong> bis <strong>D15</strong>.
-Fährt man mit der Maus über eine Kachel, steht dort zusätzlich die
-Leitungsnummer, z. B. <em>41 (wire 56)</em>. In der Namensdatei steht die
-Leitungsnummer: Selbsttest-Nummer + 15.</p>
+Selbsttest-Nummer und heißen <strong>D0</strong> bis
+<strong>D15</strong>. Fährt man mit der Maus über eine Kachel, steht
+dort zusätzlich die Leitungsnummer, z. B. <em>41 (wire 56)</em>. In der
+Namensdatei steht die Leitungsnummer: Selbsttest-Nummer + 15.</p>
 <blockquote>
 <p>Fehlt die Kachel 07 ganz, hat Ihr Gerät keinen Speicherbereich für
 Namensdateien. Das ist der Fall, wenn es bisher nur über die Luft
@@ -628,41 +670,72 @@ Kachel 07 - nur eine Vollinstallation per USB einrichtet (ab Firmware
 1.21). Die Namensdateien bleiben dabei erhalten.</p>
 </blockquote>
 <h3 id="09--fpga">09 · FPGA</h3>
-<p>Nur auf der <strong>FPGA-Platine v7</strong> (EP4CE6 dev board v7),
-auf der das Modul direkt auf der FPGA-Platine sitzt, ab Firmware 1.24.
-Ab Firmware 1.27 auch auf der <strong>FPGA-Platine v7.1</strong> mit dem
-größeren EP4CE22; FA_Control erkennt den Chip selbst.
-Auf allen anderen Platinen wird diese Kachel nicht angezeigt.</p>
-<p>Hier schreibt FA_Control den Konfigurationsflash (EPCS) des FPGA über
-WLAN – ohne USB-Blaster, ohne Quartus. <strong>Jede Aktion in diesem
-Menü hält das FPGA im Reset:</strong> Das Spiel startet neu, eine
-laufende Verbindung oder ein laufender Monitor-Modus endet. Die Seite
-fragt vorher nach. CONNECT ist nicht nötig.</p>
+<p>Nur dort, wo FA_Control an das FPGA herankommt — im einfachen
+Steckplatz einer FA-Platine fehlt diese Kachel:</p>
+<table>
+<thead>
+<tr>
+<th>Platine</th>
+<th>Was dieses Menü kann</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>FPGA-Platine v7 / v7.1</strong> (Modul sitzt auf der
+FPGA-Platine)</td>
+<td>alles unten Beschriebene</td>
+</tr>
+<tr>
+<td><strong>JTAG-Piggyback</strong> (Modul am JTAG-Anschluss einer
+Platine)</td>
+<td>STATUS und TEST A DESIGN. Dauerhaftes Installieren folgt mit einer
+späteren Firmware</td>
+</tr>
+</tbody>
+</table>
+<p>FA_Control erkennt Platine und Baustein selbst (EP4CE6/E10, EP4CE15,
+EP4CE22, 10CL006). <strong>Jede Aktion in diesem Menü ersetzt das
+laufende Design:</strong> Das Spiel startet neu, eine laufende
+Verbindung oder ein laufender Monitor-Modus endet. Die Seite fragt
+vorher nach. CONNECT ist nicht nötig.</p>
 <ul>
-<li><strong>STATUS</strong> – <strong>CONF_DONE</strong> zeigt, ob das
-FPGA läuft (<strong>HIGH</strong>) oder kein gültiges Image hat
-(<strong>LOW</strong>). <strong>IDENTIFY EPCS</strong> liest Typ und
-Größe des Flash, <strong>RECONFIGURE</strong> startet das FPGA aus dem
-Flash neu, wie Aus- und Einschalten.</li>
-<li><strong>WRITE A NEW IMAGE</strong> – die <code>.rbf</code>-Datei der
-FPGA-Firmware wählen und <strong>WRITE</strong> drücken. <strong>REVERSE
-BITS (.RBF)</strong> bleibt bei <code>.rbf</code>-Dateien angehakt. Das
-dauert einige Sekunden; das Image wird zurückgelesen und verglichen,
-danach startet das FPGA damit. Geschrieben werden nur die ersten 512 kB,
-die dahinter abgelegten Spiel-ROMs bleiben, wie sie sind.</li>
-<li><strong>WRITE GAME ROMS</strong> – die Spiel-ROMs, damit die Platine
-ohne SD-Karte startet. Die ROM-Datei wählen (bei GottFA1_PLuS
-<code>gottfa1_roms.bin</code>) und die Adresse <code>0x080000</code>
-stehen lassen. Das FPGA-Image wird dabei nie berührt.</li>
-<li><strong>READ BACK</strong> – lädt einen Bereich des Flash als Datei
-herunter, etwa um vor dem Schreiben eines neuen Image eine Kopie des
-aktuellen zu behalten.</li>
+<li><strong>STATUS</strong> – welches FPGA antwortet, welches Design
+läuft und ob es den FA-Link hat (den brauchen Monitor- und Control-Modus
+am JTAG-Piggyback). Auf der Platine v7 außerdem
+<strong>CONF_DONE</strong> – ob das FPGA läuft (<strong>HIGH</strong>)
+oder kein gültiges Image hat (<strong>LOW</strong>) – und der
+Konfigurationsflash (EPCS). <strong>CHECK</strong> fragt neu ab,
+<strong>IDENTIFY EPCS</strong> liest Typ und Größe des Flash,
+<strong>RECONFIGURE</strong> startet das FPGA aus dem Flash neu, wie
+beim Aus- und Einschalten.</li>
+<li><strong>INSTALL PERMANENTLY</strong> – die
+<strong><code>.jic</code></strong> aus Quartus wählen (dieselbe Datei,
+die ein USB-Blaster programmieren würde) und <strong>WRITE</strong>
+drücken. Enthält die <code>.jic</code> auch Spiel-ROMs, werden sie
+mitgeschrieben. FA_Control prüft, ob die Datei zu diesem FPGA passt.
+Eine <code>.rbf</code> oder <code>.rpd</code> schreibt nur das
+FPGA-Image; bei <code>.rbf</code>-Dateien bleibt <strong>REVERSE BITS
+(.RBF)</strong> angehakt. Das dauert einige Sekunden; alles wird
+zurückgelesen und verglichen, danach startet das FPGA damit neu. Das
+Image darf höchstens 512 kB groß sein.</li>
+<li><strong>TEST A DESIGN (UNTIL POWER-OFF)</strong> – lädt ein Design
+direkt ins FPGA, ohne den Flash anzufassen: eine
+<code>.fjz</code>-Datei, erzeugt aus der <code>.sof</code> von Quartus.
+Es läuft bis zum Ausschalten, danach startet wieder das installierte
+Design. So bekommt der JTAG-Piggyback ein Design mit FA-Link.</li>
+<li><strong>ADVANCED</strong> (zum Aufklappen) – <strong>WRITE GAME ROMS
+TO THE EPCS</strong> für eine einzelne ROM-Datei (bei GottFA1_PLuS
+<code>gottfa1_roms.bin</code>, Adresse <code>0x080000</code>; eine
+<code>.jic</code> mit Spiel-ROMs erledigt das von selbst) und
+<strong>READ BACK</strong>, das einen Bereich des Flash als Datei
+herunterlädt, etwa um vor dem Schreiben eines neuen Image eine Kopie zu
+behalten.</li>
 </ul>
 <blockquote>
 <p>Bricht das Schreiben ab – WLAN weg, Seite geschlossen –, startet das
 FPGA erst wieder, wenn ein vollständiges Image im Flash steht. Kaputt
-ist nichts: Schreiben Sie das Image einfach noch einmal. FA_Control
-selbst läuft weiter und bleibt erreichbar.</p>
+ist nichts: Schreiben Sie es einfach noch einmal. FA_Control selbst
+läuft weiter und bleibt erreichbar.</p>
 </blockquote>
 <p>Auf der Platine v7 gibt es keine DIP-Bank: FA_Control ist
 eingeschaltet, solange der Automat es ist. <strong>Achten Sie auf die
@@ -681,18 +754,19 @@ Schalter und Displays tun. Das ist das Werkzeug für Fehler, die nur im
 Spiel auftreten: eine Lampe, die nie angeht, eine Spule, die nie
 ausgelöst wird, ein Schalter, der nicht ankommt.</p>
 <p>Der Umschalter oben auf der Seite, <strong>MONITOR MODE | CONTROL
-MODE</strong>, wählt den Modus. Ab Firmware 1.26 startet der Monitor-Modus
-beim Öffnen der Seite von selbst. Im breiten Fenster passt alles auf einen
-Bildschirm, Displays und Schalter stehen oben; am Handy bleiben die Felder
-untereinander.</p>
+MODE | CONFIG MODE</strong>, wählt den Modus (<a href="#5-die-seite-aufrufen">Kapitel 5</a>). Der Monitor-Modus startet
+beim Öffnen der Seite von selbst. Am JTAG-Piggyback braucht er ein
+FPGA-Design mit FA-Link; ohne ist die Schaltfläche ausgegraut. Im
+breiten Fenster passt alles auf einen Bildschirm, Displays und Schalter
+stehen oben; am Handy bleiben die Felder untereinander.</p>
 <p><strong>So geht es:</strong></p>
 <ol type="1">
-<li>Die Seite öffnen oder oben <strong>MONITOR MODE</strong> drücken. Sind
-Sie im Control-Modus verbunden, fragt FA_Control vorher nach: Die Rückgabe der
-Kontrolle startet das Spiel neu.</li>
+<li>Die Seite öffnen oder oben <strong>MONITOR MODE</strong> drücken.
+Sind Sie im Control-Modus verbunden, fragt FA_Control vorher nach: Die
+Rückgabe der Kontrolle startet das Spiel neu.</li>
 <li>Der Balken wird grün und zeigt <strong>MONITOR MODE - THE GAME KEEPS
-RUNNING</strong>. Die Seite wird zweimal pro Sekunde
-aufgefrischt und zeigt:
+RUNNING</strong>. Die Seite wird zweimal pro Sekunde aufgefrischt und
+zeigt:
 <ul>
 <li><strong>STATE</strong> — ob ein Spiel läuft oder der Attract-Modus
 an ist, dazu Gerät und Spiel.</li>
@@ -712,21 +786,22 @@ auf, und das Spiel merkt davon nichts.</li>
 </ol>
 <p>Namen aus einer Namensdatei (<strong>07 · NAMES</strong>) stehen auch
 hier auf den Kacheln. Lampen, Spulen, Displays und Sound lassen sich im
-Monitor-Modus nicht schalten — FA_Control weist diese Befehle ab, bis Sie
-im Control-Modus verbinden.</p>
-<p><strong>Schalter simulieren</strong> (ab Firmware 1.26, SternFA HW 2.0
-ab 5.3.2, mit Options-DIP 4 auf ON; der DIP wird beim Booten gelesen, eine
-Änderung braucht also einen Reset). Ein Klick auf eine Kachel unter
-<strong>SWITCHES</strong> schließt diesen Schalter für das laufende Spiel,
-ein gestrichelter Rahmen markiert ihn. Ein weiterer Klick oder
-<strong>RELEASE ALL</strong> öffnet ihn wieder. Mehrere Schalter können
-gleichzeitig geschlossen sein. Ein simulierter Schalter kann nur schließen:
-Ein wirklich geschlossener Schalter bleibt geschlossen.</p>
+Monitor-Modus nicht schalten — FA_Control weist diese Befehle ab, bis
+Sie im Control-Modus verbinden.</p>
+<p><strong>Schalter simulieren</strong> (ab Firmware 1.26, SternFA HW
+2.0 ab 5.3.2, mit Options-DIP 4 auf ON; der DIP wird beim Booten
+gelesen, eine Änderung braucht also einen Reset). Ein Klick auf eine
+Kachel unter <strong>SWITCHES</strong> schließt diesen Schalter für das
+laufende Spiel, ein gestrichelter Rahmen markiert ihn. Ein weiterer
+Klick oder <strong>RELEASE ALL</strong> öffnet ihn wieder. Mehrere
+Schalter können gleichzeitig geschlossen sein. Ein simulierter Schalter
+kann nur schließen: Ein wirklich geschlossener Schalter bleibt
+geschlossen.</p>
 <p><strong>Vorsicht:</strong> Das Spiel reagiert wie auf einen echten
-Schalter, Spulen können also auslösen. Nicht in die Maschine greifen. Alle
-simulierten Schalter werden etwa 2 Sekunden, nachdem die Seite nicht mehr
-abfragt, wieder frei, zum Beispiel wenn Sie die Seite verlassen oder die
-Verbindung abreißt.</p>
+Schalter, Spulen können also auslösen. Nicht in die Maschine greifen.
+Alle simulierten Schalter werden etwa 2 Sekunden, nachdem die Seite
+nicht mehr abfragt, wieder frei, zum Beispiel wenn Sie die Seite
+verlassen oder die Verbindung abreißt.</p>
 <p><strong>Wenn er nicht startet</strong>, steht der Grund im Balken.
 <strong>START MONITOR</strong> versucht es erneut.</p>
 <table>
@@ -749,7 +824,8 @@ HARDWARE</strong></td>
 Aktualisieren Sie beide.</td>
 </tr>
 <tr>
-<td><strong>NO ANSWER - CHECK WIRING AND POWER</strong></td>
+<td><strong>NO ANSWER FROM THE FA BOARD - IS THE GAME SWITCHED
+ON?</strong></td>
 <td>Wie in Kapitel 6: Es meldet sich niemand.</td>
 </tr>
 </tbody>
@@ -780,9 +856,9 @@ muss das Gerät in Ihrem Heimnetz angemeldet sein — im eigenen Netz
 <code>FA-Control</code> gibt es keine Internetverbindung, und die
 Schaltfläche ist dann gesperrt.</p>
 <ol type="1">
-<li>Kachel <strong>06 · WI-FI</strong> öffnen, Abschnitt
-<strong>FIRMWARE</strong>. Dort steht unter <strong>INSTALLED
-VERSION</strong>, was gerade läuft.</li>
+<li><strong>CONFIG MODE</strong> drücken und die Kachel <strong>06 ·
+WI-FI</strong> öffnen, Abschnitt <strong>FIRMWARE</strong>. Dort steht
+unter <strong>INSTALLED VERSION</strong>, was gerade läuft.</li>
 <li><strong>LOAD VERSIONS</strong> drücken. Nach einem Moment erscheint
 eine Auswahlliste mit den verfügbaren Versionen, die neueste oben.</li>
 <li>Version auswählen und <strong>INSTALL UPDATE</strong> drücken. Die

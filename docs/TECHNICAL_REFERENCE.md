@@ -156,8 +156,14 @@ machine belongs to itself.
 | `1` | `FA_CONN_DENIED_DIP` | `Control denied - set option DIP 4 to ON` |
 | `2` | `FA_CONN_DENIED_REQ` | `Control denied - request line (GPIO10) not seen` |
 | other | `FA_CONN_DENIED_OTHER` | `Control denied` |
-| timeout (`-1`) | `FA_CONN_NO_ANSWER` | `No answer - check wiring and power` |
+| timeout (`-1`) | `FA_CONN_NO_ANSWER` | `No answer from the FA board - is the game switched on?` |
+| — (JTAG piggyback, no `fa_vjtag_link` in the design) | `FA_CONN_NO_LINK` | `FPGA design has no FA link - load one under CONFIG > FPGA` |
 | — | `FA_CONN_IDLE` | `Not connected` |
+
+   `FA_CONN_NO_LINK` (since v1.32, `conn` = 9) is decided before any LISY byte is sent:
+   `fa_connect_run()` and `fa_connect_monitor()` ask `fpga_vjtag_link_present()` first. Without
+   that check the commands ran into the timeout and the user read "check wiring" on a board that
+   was wired perfectly and only lacked the right design.
 
    `0` and the error numbering are defined by the counterpart (`rtl/fa_control/fa_control.vhd`).
    On AtariFA the enable switch of code `1` is **option DIP 4**.
@@ -185,10 +191,12 @@ configurable. Making it switchable would mean declaring loss of control a user p
 
 ### 4.2 Monitor mode (since v1.25)
 
-The page switch **MONITOR MODE / CONTROL MODE** in the header selects between a purely passive
-connection and the handshake above. Since v1.26 monitor mode is the default of the **page**: on
-load `init()` sends `POST /api/monitor` unless control is active (`conn === 1`). If the result is
-not `FA_CONN_MONITOR`, the page stays on the home screen and the bar shows the reason. The firmware
+The page switch **MONITOR MODE / CONTROL MODE / CONFIG MODE** in the header selects between a
+purely passive connection, the handshake above and the setup pages (§ 8.2). Since v1.26 monitor
+mode is the default of the **page**: on load `init()` sends `POST /api/monitor` unless control is
+active (`conn === 1`) or the link cannot do monitoring (§ 8.2). If the result is not
+`FA_CONN_MONITOR`, the page opens CONFIG MODE (since v1.32; before, the home screen) and the bar
+shows the reason. The firmware
 itself still connects to nothing at boot. Windows of at least 1000 px get a one-screen layout
 (`body.mon`), without a sound field when the device has neither sounds nor a `MON_SND` entry.
 `POST /api/monitor` runs `fa_connect_monitor()`:
@@ -204,7 +212,7 @@ itself still connects to nothing at boot. Windows of at least 1000 px get a one-
 | length matches the inventory | `FA_CONN_MONITOR` | `Monitor mode - the game keeps running` |
 | length `0` | `FA_CONN_NO_MONITOR` | `This FPGA firmware has no monitor mode` |
 | other length | `FA_CONN_MON_FORMAT` | `Monitor data do not match the reported hardware` |
-| no answer at all | `FA_CONN_NO_ANSWER` | `No answer - check wiring and power` |
+| no answer at all | `FA_CONN_NO_ANSWER` | `No answer from the FA board - is the game switched on?` |
 
 In monitor mode the inventory is filled although nobody has control. The control endpoints
 therefore check `in_control()` (`state == FA_CONN_ACTIVE`) in addition to the range check and
@@ -628,7 +636,7 @@ Query parameters only — there is no JSON parsing anywhere. Responses are built
 | Endpoint | Function |
 |---|---|
 | `GET /` | the web page (gzip) |
-| `GET /api/config` | inventory, connection state, device info, watchdog and pulse time as JSON |
+| `GET /api/config` | inventory, connection state, device info, watchdog and pulse time as JSON; since v1.32 also the capabilities `board`, `link`, `fsram`, `fepcs` (§ 8.2) |
 | `POST /api/config?pulse=50` | store coil pulse time (the only storable setting) |
 | `POST /api/connect` | run the handshake; replies like `GET /api/config` |
 | `POST /api/disconnect` | release control resp. end monitor mode; replies like `GET /api/config` |
@@ -764,6 +772,62 @@ The interface is in English. The manuals under `docs/` quote its labels verbatim
 renamed button has to be followed up there.
 
 ---
+
+### 8.2 Three modes, only what works (since v1.32)
+
+The header has three buttons: **MONITOR MODE**, **CONTROL MODE**, **CONFIG MODE**.
+
+| Mode | Page | Content |
+|---|---|---|
+| monitor | `#monitor` | § 4.2 |
+| control | `#home` | connection fieldset, REPORTED HARDWARE, tiles 01–05 |
+| config | `#config` | board and FA link in plain text, tiles 06 WI-FI, 07 NAMES, 08 GAME ROMS, 09 FPGA |
+
+Sub-pages belong to one mode (`CONFIG_PAGES` in `index.html`); **◀ MENU** returns to it.
+
+What the page offers comes from `GET /api/config`, not from guessing:
+
+| Field | Values | Meaning |
+|---|---|---|
+| `board` | `socket` / `v7` / `jtag` | detected board (§ 14.1) |
+| `link` | `uart`, or on the JTAG piggyback `full` / `monitor` / `control` / `service` / `none` | how FA control reaches the game. On the piggyback the kind comes from the link ID ("FA" + L/M/C/S + board ID, `fpga_vjtag_link_kind()`, cached by `link_attach()`, so no extra hub scan per request) |
+| `fsram` | 0/1 | a design can be loaded into the FPGA SRAM over JTAG (v7, JTAG piggyback) |
+| `fepcs` | 0/1 | the configuration flash can be written (v7; the JTAG piggyback after the bridge, EVALUIERUNG § 14.4) |
+
+- MONITOR MODE is enabled for `link` ∈ {uart, full, monitor}, CONTROL MODE for
+  {uart, full, control, service}. A disabled button carries the reason as its tooltip.
+- Tiles: 07 needs `namesfs`, 08 `romfs`, 09 `fsram || fepcs`. The socket therefore never shows
+  tile 09: it has no line to the FPGA's JTAG or AS pins.
+- Start page: monitor if possible and it starts, control if control is active, otherwise
+  config. `conn` 5 (no answer) and 9 (no link) colour the bar as a note, not as an error.
+
+**Tile 09 FPGA** is one page for both boards. Elements with class `.sr` need `fsram`, `.ep`
+need `fepcs`:
+
+| Section | Shown with | Function |
+|---|---|---|
+| STATUS | always | `/api/vjtag?info=1` (FPGA, running design, FA link); with `fepcs` also CONF_DONE and EPCS (`/api/fpgainfo`) |
+| INSTALL PERMANENTLY | `fepcs` | `.jic` (parsed in the browser, below) or `.rbf`/`.rpd` → `POST /api/fpgaup` |
+| TEST A DESIGN (UNTIL POWER-OFF) | `fsram` | `.fjz` → `POST /api/fpgasram` |
+| ADVANCED (`<details>`) | `fepcs` | game roms into the EPCS, READ BACK |
+
+**`.jic` without firmware support.** The browser splits the file and sends two ordinary
+`fpgaup` uploads. Format (checked on Quartus 13 and 22 files):
+
+- `"JIC\0"`, u32, u32, then entries `u16 tag, u32 len` (little endian) + data
+- tag 2 = device (`EP4CE6`, `10CL006Y`), tag 27 = flash (`EPCS16`)
+- **tag 28 = flash content:** 12 bytes of preamble, then the whole flash from address 0
+
+The content is bit-reversed relative to the EPCS throughout (bitstream as in the `.rbf`, roms
+reversed, § 14.3), so both parts go with `rev=1`:
+
+- **image** `[0, 0x80000)` with trailing 0xFF cut off → `addr=0&rev=1`
+- **rom area** from 0x080000, trailing 0xFF cut off, only if not empty → `addr=0x080000&rev=1`
+
+The device name is checked against the IDCODE (`JIC_IDCODE`: E6/E10/10CL006/10CL010 =
+0x020F10DD, E15/10CL016 = 0x020F20DD, E22/10CL025 = 0x020F30DD). An image that runs without a
+gap past 512 kB is refused ("use a compressed bitstream"); otherwise its tail would land in the
+rom area. Each of the two uploads is a full EPCS session, so the FPGA restarts twice.
 
 ## 9. Wi-Fi manager
 
@@ -1060,7 +1124,7 @@ What changes in v7:
 | Push button GPIO9 | input | not read: it is TDI |
 | Blue LED GPIO8 | blinks | blinks; it is TMS as well, harmless without TCK edges |
 | Console | USB-Serial-JTAG (since 1.31, before UART0 + USB) | USB-Serial-JTAG |
-| Menu 09 FPGA | – | shown (`"fpga":1` in `/api/config`) |
+| Menu 09 FPGA | – | shown (`"fepcs":1` in `/api/config`, § 8.2) |
 
 ### 14.2 GPIO map v7
 
@@ -1230,7 +1294,7 @@ USB and connect the cable; the board powers the Supermini.
 | `GET /api/vjtag[?n=1000][&dead=1]` | hub enumeration, then by node ID: **"GF8x"** test node `vjtag_probe`: `id`, `echo_total`, `echo_ok`, `fail_out`, `fail_in`, `echo_us`, `bytes_per_s`, `session_us`, `ok` (`n` = echo scans, 1…100 000). **"FALx"** `fa_vjtag_link`: LISY commands 0/1/2/110 as `hw`/`ver`/`api`/`mon` (`rx`, `scans`, `us`, `str`, `hex`), control bit `ctrl_set1`/`ctrl_set0`, with `dead=1` also `ctrl_dead` (set, 2.5 s idle, must read 0). The echo test never runs against the link — it would send bytes to FA control |
 
 | `POST /api/fwupload` | (all boards) firmware upload from the PC: body = `FA_Control.bin`, checked by `fw_image_check()` on the first block (§ 14.1), written to the free OTA partition, checked by `esp_ota_end()`, then boot partition switched and restart after 1 s. A `?board=` from up to 1.30 is ignored. `curl --data-binary @FA_Control.bin "http://<ip>/api/fwupload"` |
-| UI tile 09 FPGA (`"fpga":2`) | JTAG piggyback only: STATUS via `GET /api/vjtag?info=1` (hub and node ID only — no LISY bytes, no control bit, safe during a connection; `kind` = `full`/`monitor`/`control` from the link ID "FA" + L/M/C + board ID), LOAD A DESIGN = file picker for a `.fjz` → `POST /api/fpgasram`. Loading ends a running connection first (like DISCONNECT) |
+| UI tile 09 FPGA (`"fsram":1`) | since v1.32 the common FPGA page (§ 8.2). STATUS via `GET /api/vjtag?info=1` (hub and node ID only — no LISY bytes, no control bit, safe during a connection; `kind` = `full`/`monitor`/`control`/`service` from the link ID "FA" + L/M/C/S + board ID), TEST A DESIGN = file picker for a `.fjz` → `POST /api/fpgasram`. Loading ends a running connection first (like DISCONNECT) |
 | `POST /api/fpgasram` | load any design into the FPGA SRAM over JTAG. Body = `.fjz` from `fpga/as_release/make_jtag_blob.py --sof <x.sof> --out <x.fjz>` (header `FJZ1`, CHECK_STATUS length and CONF_DONE bit as u16 LE, then zlib). Inflated and shifted while it arrives. Answer: `ok`, `err`, `idcode`, `conf_done`, `bytes`, `ms`. SRAM only — after power-off the EPCS design boots again. The IDCODE only names the die, so load only designs built for this board |
 
 Measured on board v4.x (17.11.2026): `/api/fpgasram` loads the 368 KB stream (94–98 KB `.fjz`)

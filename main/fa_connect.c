@@ -7,6 +7,7 @@
 
 #include "app_config.h"
 #include "board.h"
+#include "fpga_jtag.h"
 #include "lisy.h"
 #include "names.h"
 
@@ -34,7 +35,8 @@ const char *fa_connect_state_str(void)
         case FA_CONN_DENIED_DIP:   return "Control denied - set option DIP 4 to ON";
         case FA_CONN_DENIED_REQ:   return "Control denied - request line (GPIO10) not seen";
         case FA_CONN_DENIED_OTHER: return "Control denied";
-        case FA_CONN_NO_ANSWER:    return "No answer - check wiring and power";
+        case FA_CONN_NO_ANSWER:    return "No answer from the FA board - is the game switched on?";
+        case FA_CONN_NO_LINK:      return "FPGA design has no FA link - load one under CONFIG > FPGA";
         case FA_CONN_MONITOR:      return "Monitor mode - the game keeps running";
         case FA_CONN_NO_MONITOR:   return "This FPGA firmware has no monitor mode";
         case FA_CONN_MON_FORMAT:   return "Monitor data do not match the reported hardware";
@@ -92,9 +94,24 @@ static void query_counts(void)
              s_info.lamps, s_info.coils, s_info.switches, s_info.sounds, s_info.displays);
 }
 
+/* JTAG-Piggyback ohne fa_vjtag_link im Design: gar nicht erst ueber LISY fragen.
+ * Die Befehle liefen nur in den Timeout und meldeten "keine Antwort". */
+static bool no_link(void)
+{
+    if (board_type() == BOARD_JTAG && !fpga_vjtag_link_present()) {
+        s_info.state = FA_CONN_NO_LINK;
+        ESP_LOGW(TAG, "%s", fa_connect_state_str());
+        return true;
+    }
+    return false;
+}
+
 esp_err_t fa_connect_run(void)
 {
     memset(&s_info, 0, sizeof(s_info));
+    if (no_link()) {
+        return ESP_OK;
+    }
 
     board_ctrl_request(true);
     vTaskDelay(pdMS_TO_TICKS(CTRL_SETTLE_MS));
@@ -165,6 +182,9 @@ esp_err_t fa_connect_monitor(void)
         fa_connect_release();
     }
     memset(&s_info, 0, sizeof(s_info));
+    if (no_link()) {
+        return ESP_OK;
+    }
 
     /* Die Info-Gruppe beantwortet fa_control.vhd auch ohne Kontrolle. */
     query_counts();

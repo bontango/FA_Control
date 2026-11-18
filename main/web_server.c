@@ -186,13 +186,22 @@ static esp_err_t config_get_handler(httpd_req_t *req)
     char gameid[NAMES_MAX_ID];
     names_game_id(gameid, sizeof(gameid));
 
-    char buf[640];
+    /* Was auf diesem Board mit dem laufenden Design geht (seit 1.32). Die Seite
+     * blendet danach Modi und Kacheln ein, statt zu raten:
+     *   link  "uart" (Sockel, v7) oder die Art des fa_vjtag_link auf dem
+     *         JTAG-Piggyback: "full", "monitor", "control", "service", "none"
+     *   fsram Design per JTAG in den SRAM laden (.fjz)
+     *   fepcs Konfigurationsflash dauerhaft schreiben (.jic/.rbf), bisher nur v7 */
+    const char *link = board_type() == BOARD_JTAG ? fpga_vjtag_link_kind() : "uart";
+
+    char buf[768];
     snprintf(buf, sizeof(buf),
              "{\"lamps\":%u,\"coils\":%u,\"switches\":%u,\"sounds\":%u,"
              "\"displays\":%u,\"dw\":[%s],\"dt\":[%s],\"wd\":%d,\"wdlast\":%d,\"pulse\":%u,"
              "\"conn\":%d,\"connmsg\":\"%s\","
              "\"hw\":\"%s\",\"fwver\":\"%s\",\"apiver\":\"%s\",\"game\":\"%s\","
-             "\"namesfs\":%d,\"names\":\"%s\",\"gameid\":\"%s\",\"romfs\":%d,\"fpga\":%d}",
+             "\"namesfs\":%d,\"names\":\"%s\",\"gameid\":\"%s\",\"romfs\":%d,\"fpga\":%d,"
+             "\"board\":\"%s\",\"link\":\"%s\",\"fsram\":%d,\"fepcs\":%d}",
              ci->lamps, ci->coils, ci->switches, ci->sounds,
              ci->displays, dw, dt,
              lisy_watchdog_enabled() ? 1 : 0, lisy_watchdog_last_result(),
@@ -200,7 +209,8 @@ static esp_err_t config_get_handler(httpd_req_t *req)
              (int)ci->state, fa_connect_state_str(),
              ci->hw, ci->fw_ver, ci->api_ver, ci->game,
              names_ready() ? 1 : 0, names_active(), gameid, rom_boot_ready() ? 1 : 0,
-             has_fpga());
+             has_fpga(),
+             board_name(), link, board_has_jtag() ? 1 : 0, board_type() == BOARD_V7 ? 1 : 0);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
 }
@@ -1369,11 +1379,8 @@ static esp_err_t vjtag_get_handler(httpd_req_t *req)
         const char *node = FPGA_VJTAG_IS_LINK(id)          ? "fa_vjtag_link" :
                            (id >> 8) == FPGA_VJTAG_ID_PROBE ? "vjtag_probe"   :
                            perr == ESP_OK                   ? "unknown"       : "none";
-        /* Art des FA-Designs: full / monitor / control */
-        const char *kind = !FPGA_VJTAG_IS_LINK(id)          ? ""        :
-                           FPGA_VJTAG_LINK_KIND(id) == 'M'  ? "monitor" :
-                           FPGA_VJTAG_LINK_KIND(id) == 'C'  ? "control" :
-                           FPGA_VJTAG_LINK_KIND(id) == 'S'  ? "service" : "full";
+        /* Art des FA-Designs: full / monitor / control / service */
+        const char *kind = fpga_vjtag_kind_str(id);
         len += snprintf(buf + len, sizeof(buf) - len,
                         ",\"id\":\"0x%08lX\",\"node\":\"%s\",\"kind\":\"%s\",\"ok\":1}",
                         (unsigned long)id, node, kind);

@@ -135,10 +135,10 @@ tbody tr:nth-child(even) { background: #f3f3f3; }
 <h1 id="fa_control">FA_Control</h1>
 <p><strong>Outil de service LISY pour flippers sur un
 ESP32-C3</strong></p>
-<p><strong>Version du firmware 1.27</strong></p>
+<p><strong>Version du firmware 1.32</strong></p>
 <p><strong>manuel d&#39;utilisation</strong></p>
 <p><a href="mailto:ralf@lisy.dev">ralf@lisy.dev</a></p>
-<p>v1.27 06.11.2026</p>
+<p>v1.32 18.11.2026</p>
 <blockquote>
 <p>Version française de <a href="FA_Control_user_manual.html">FA_Control_user_manual.html</a>.
 Deutsche Fassung: <a href="FA_Control_Bedienungsanleitung.html">FA_Control_Bedienungsanleitung.html</a>.
@@ -274,7 +274,8 @@ passe.</li>
 <li>En règle générale, la page de pilotage <strong>s&#39;ouvre
 d&#39;elle-même</strong>. Sinon, saisissez <code>http://192.168.4.1</code>
 dans votre navigateur.</li>
-<li>Sur la page, cliquez sur la tuile <strong>06 · WI-FI</strong>.</li>
+<li>Sur la page, appuyez en haut sur <strong>CONFIG MODE</strong>, puis
+cliquez sur la tuile <strong>06 · WI-FI</strong>.</li>
 <li>Sous <strong>NETWORK</strong>, saisissez le nom de votre réseau
 domestique dans <strong>SSID</strong> et son mot de passe dans
 <strong>PASSWORD</strong>.</li>
@@ -303,17 +304,46 @@ des appareils de votre box ou de votre routeur.</p>
 <p>En haut à droite, la page indique aussi la version installée, le mode
 (<code>STA</code> = sur votre réseau domestique, <code>AP</code> = son
 propre réseau) et l&#39;adresse IP.</p>
-<p>À partir du firmware 1.26, la page s&#39;ouvre en <strong>mode
-moniteur</strong> (<a href="#8-mode-moniteur">chapitre 8</a>) si la carte le
-prend en charge ; le jeu continue de tourner. <strong>CONTROL MODE</strong>
-en haut mène à l&#39;écran d&#39;accueil avec le menu de tuiles. Sans prise en
-charge du moniteur, ou si le contrôle est actif, la page s&#39;ouvre sur l&#39;écran
-d&#39;accueil.</p>
+<p>Le sélecteur en haut de la page choisit l&#39;un des trois modes :</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>À quoi il sert</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>MONITOR MODE</strong></td>
+<td>observer une partie en cours (<a href="#8-mode-moniteur">chapitre
+8</a>)</td>
+</tr>
+<tr>
+<td><strong>CONTROL MODE</strong></td>
+<td>prendre le flipper en main : connexion, tuiles 01 à 05 (<a href="#6-se-connecter">chapitre 6</a>)</td>
+</tr>
+<tr>
+<td><strong>CONFIG MODE</strong></td>
+<td>configurer l&#39;appareil : tuiles 06 à 09 — Wi-Fi et firmware, fichiers
+de noms, ROM de jeu, FPGA. Fonctionne sans aucune connexion au jeu</td>
+</tr>
+</tbody>
+</table>
+<p>La page s&#39;ouvre en <strong>mode moniteur</strong> si le flipper le
+prend en charge ; le jeu continue de tourner. Si le contrôle est actif,
+elle s&#39;ouvre en mode contrôle. Si ni l&#39;un ni l&#39;autre n&#39;est possible — le
+flipper est éteint, ou (sur le piggyback JTAG) le design FPGA n&#39;a pas de
+lien FA —, elle s&#39;ouvre en <strong>mode configuration</strong>, avec la
+raison dans la barre.</p>
+<p>Un mode que la carte ou le design FPGA en cours ne sait pas faire est
+<strong>grisé</strong> ; le survol indique pourquoi. Le mode
+configuration est toujours disponible et n&#39;affiche que les tuiles qui
+fonctionnent sur votre appareil.</p>
 <hr />
 <h2 id="6-se-connecter">6. Se connecter</h2>
-<p>L&#39;<strong>écran d&#39;accueil est la procédure de connexion</strong>. Il
-montre une barre avec l&#39;état de la connexion, trois boutons et, en
-dessous, le menu de tuiles.</p>
+<p>L&#39;<strong>écran d&#39;accueil du mode contrôle est la procédure de
+connexion</strong>. Il montre une barre avec l&#39;état de la connexion,
+trois boutons et, en dessous, les tuiles 01 à 05.</p>
 <p>Les tuiles <strong>01 à 05 sont grisées et ne peuvent pas être
 cliquées</strong> tant qu&#39;il n&#39;y a pas de connexion. C&#39;est voulu :
 FA_Control n&#39;apprend qu&#39;après la connexion combien de lampes, de
@@ -365,10 +395,18 @@ contrôle. Vérifiez que le connecteur entre FA_Control et la carte est
 bien enfiché.</td>
 </tr>
 <tr>
-<td><strong>NO ANSWER - CHECK WIRING AND POWER</strong></td>
-<td>Personne ne répond. Le flipper est-il allumé ? Le câble est-il bien
+<td><strong>NO ANSWER FROM THE FA BOARD - IS THE GAME SWITCHED
+ON?</strong></td>
+<td>Personne ne répond. Le flipper est-il allumé ? Le module est-il bien
 en place ? Un firmware compatible tourne-t-il bien de l&#39;autre côté
 ?</td>
+</tr>
+<tr>
+<td><strong>FPGA DESIGN HAS NO FA LINK - LOAD ONE UNDER CONFIG &gt;
+FPGA</strong></td>
+<td>Uniquement sur le piggyback JTAG : le FPGA exécute un design sans
+lien FA, par exemple le <code>.jic</code> publié. Chargez un design avec
+lien sous <strong>CONFIG MODE › 09 · FPGA</strong>.</td>
 </tr>
 <tr>
 <td><strong>CONTROL DENIED</strong></td>
@@ -386,9 +424,11 @@ semble s&#39;être désynchronisé — par exemple quand l&#39;affichage des lam
 et la réalité ne concordent plus.</p>
 <hr />
 <h2 id="7-les-menus">7. Les menus</h2>
-<p>Tous les menus de pilotage sont accessibles par le menu de tuiles de
-l&#39;écran d&#39;accueil. <strong>◀ MENU</strong> en haut à gauche vous ramène
-en arrière.</p>
+<p>Les tuiles <strong>01 à 05</strong> se trouvent sur l&#39;écran d&#39;accueil
+du <strong>mode contrôle</strong>, les tuiles <strong>06 à 09</strong>
+sur la page du <strong>mode configuration</strong>. <strong>◀
+MENU</strong> en haut à gauche vous ramène à la page d&#39;où vous
+venez.</p>
 <h3 id="01--lamps">01 · LAMPS</h3>
 <p>Une grille avec une tuile par lampe, numérotées à partir de 0.
 <strong>Un clic allume la lampe, le suivant l&#39;éteint.</strong> Les
@@ -591,13 +631,13 @@ numérotation que celle des tuiles. Les lignes qui commencent par
 intéresse ; tout le reste reste numérique. 32 Ko au maximum par
 fichier.</p>
 <p><strong>Exception — interrupteurs sur AtariFA :</strong> les tuiles
-des interrupteurs affichent le numéro qu&#39;utilise l&#39;autotest du jeu,
-pour une comparaison directe. Les 16 premières positions sont les
+des interrupteurs affichent le numéro qu&#39;utilise l&#39;autotest du jeu, pour
+une comparaison directe. Les 16 premières positions sont les
 interrupteurs DIP de programmation (et l&#39;interrupteur de test) ; elles
 n&#39;ont pas de numéro d&#39;autotest et s&#39;appellent <strong>D0</strong> à
-<strong>D15</strong>. En survolant une tuile, on voit aussi son numéro de
-ligne, p. ex. <em>41 (wire 56)</em>. Le fichier de noms garde le numéro
-de ligne : numéro d&#39;autotest + 15.</p>
+<strong>D15</strong>. En survolant une tuile, on voit aussi son numéro
+de ligne, p. ex. <em>41 (wire 56)</em>. Le fichier de noms garde le
+numéro de ligne : numéro d&#39;autotest + 15.</p>
 <blockquote>
 <p>Si la tuile 07 manque complètement, votre appareil n&#39;a pas de zone de
 stockage pour les fichiers de noms. C&#39;est le cas quand il n&#39;a jamais été
@@ -647,41 +687,72 @@ du firmware 1.21). Les fichiers de noms survivent à cette
 installation.</p>
 </blockquote>
 <h3 id="09--fpga">09 · FPGA</h3>
-<p>Uniquement sur la <strong>carte FPGA v7</strong> (EP4CE6 dev board
-v7), où le module est monté directement sur la carte FPGA, à partir du
-firmware 1.24. À partir du firmware 1.27 également sur la <strong>carte
-FPGA v7.1</strong> avec le EP4CE22, plus grand ; FA_Control reconnaît la puce
-tout seul. Sur toutes les autres cartes, cette tuile n&#39;apparaît pas.</p>
-<p>FA_Control écrit ici la flash de configuration (EPCS) du FPGA par
-Wi-Fi – sans USB-Blaster ni Quartus. <strong>Chaque action de ce menu
-maintient le FPGA en reset :</strong> le jeu redémarre, et une connexion
-ou un mode moniteur en cours se termine. La page demande confirmation
-avant. CONNECT n&#39;est pas nécessaire.</p>
+<p>Uniquement là où FA_Control atteint le FPGA — sur le simple support
+d&#39;une carte FA, cette tuile n&#39;apparaît pas :</p>
+<table>
+<thead>
+<tr>
+<th>Carte</th>
+<th>Ce que ce menu sait faire</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Carte FPGA v7 / v7.1</strong> (le module est monté sur la
+carte FPGA)</td>
+<td>tout ce qui est décrit ci-dessous</td>
+</tr>
+<tr>
+<td><strong>Piggyback JTAG</strong> (module sur le connecteur JTAG d&#39;une
+carte)</td>
+<td>STATUS et TEST A DESIGN. L&#39;installation permanente viendra avec un
+firmware ultérieur</td>
+</tr>
+</tbody>
+</table>
+<p>FA_Control reconnaît lui-même la carte et le composant (EP4CE6/E10,
+EP4CE15, EP4CE22, 10CL006). <strong>Chaque action de ce menu remplace le
+design en cours :</strong> le jeu redémarre, et une connexion ou un mode
+moniteur en cours se termine. La page demande confirmation avant de
+commencer. CONNECT n&#39;est pas nécessaire.</p>
 <ul>
-<li><strong>STATUS</strong> – <strong>CONF_DONE</strong> indique si le
-FPGA fonctionne (<strong>HIGH</strong>) ou n&#39;a pas d&#39;image valide
-(<strong>LOW</strong>). <strong>IDENTIFY EPCS</strong> lit le type et la
-taille de la flash, <strong>RECONFIGURE</strong> redémarre le FPGA
-depuis la flash, comme une mise hors tension puis sous tension.</li>
-<li><strong>WRITE A NEW IMAGE</strong> – choisissez le fichier
-<code>.rbf</code> du firmware FPGA et appuyez sur
-<strong>WRITE</strong>. Laissez <strong>REVERSE BITS (.RBF)</strong>
-coché pour les fichiers <code>.rbf</code>. Cela prend quelques secondes
-; l&#39;image est relue et comparée, puis le FPGA redémarre avec elle. Seuls
-les 512 premiers ko sont écrits, les ROM de jeu enregistrées derrière
-restent intactes.</li>
-<li><strong>WRITE GAME ROMS</strong> – les ROM de jeu, pour que la carte
-démarre sans carte SD. Choisissez le fichier de ROM (pour GottFA1_PLuS
-<code>gottfa1_roms.bin</code>) et gardez l&#39;adresse
-<code>0x080000</code>. L&#39;image FPGA n&#39;est jamais touchée.</li>
-<li><strong>READ BACK</strong> – télécharge une zone de la flash sous
-forme de fichier, par exemple pour garder une copie de l&#39;image actuelle
-avant d&#39;en écrire une nouvelle.</li>
+<li><strong>STATUS</strong> – quel FPGA répond, quel design tourne et
+s&#39;il possède le lien FA (nécessaire aux modes moniteur et contrôle sur
+le piggyback JTAG). Sur la carte v7, en plus <strong>CONF_DONE</strong>
+– le FPGA fonctionne (<strong>HIGH</strong>) ou n&#39;a pas d&#39;image valide
+(<strong>LOW</strong>) – et la flash de configuration (EPCS).
+<strong>CHECK</strong> interroge à nouveau, <strong>IDENTIFY
+EPCS</strong> lit le type et la taille de la flash,
+<strong>RECONFIGURE</strong> redémarre le FPGA depuis la flash, comme
+une mise hors tension puis sous tension.</li>
+<li><strong>INSTALL PERMANENTLY</strong> – choisissez le
+<strong><code>.jic</code></strong> de Quartus (le même fichier qu&#39;un
+USB-Blaster programmerait) et appuyez sur <strong>WRITE</strong>. Si le
+<code>.jic</code> contient aussi des ROM de jeu, elles sont écrites
+également. FA_Control vérifie que le fichier est destiné à ce FPGA. Un
+<code>.rbf</code> ou un <code>.rpd</code> n&#39;écrit que l&#39;image FPGA ;
+laissez <strong>REVERSE BITS (.RBF)</strong> coché pour les fichiers
+<code>.rbf</code>. Cela prend quelques secondes ; tout est relu et
+comparé, puis le FPGA redémarre avec. L&#39;image ne doit pas dépasser 512
+ko.</li>
+<li><strong>TEST A DESIGN (UNTIL POWER-OFF)</strong> – charge un design
+directement dans le FPGA, sans toucher à la flash : un fichier
+<code>.fjz</code> produit à partir du <code>.sof</code> de Quartus. Il
+tourne jusqu&#39;à la mise hors tension, ensuite le design installé
+redémarre. C&#39;est ainsi que le piggyback JTAG reçoit un design avec lien
+FA.</li>
+<li><strong>ADVANCED</strong> (à déplier) – <strong>WRITE GAME ROMS TO
+THE EPCS</strong> pour un fichier de ROM seul (pour GottFA1_PLuS
+<code>gottfa1_roms.bin</code>, adresse <code>0x080000</code> ; un
+<code>.jic</code> avec ROM de jeu le fait de lui-même), et <strong>READ
+BACK</strong>, qui télécharge une zone de la flash sous forme de
+fichier, par exemple pour garder une copie avant d&#39;écrire une nouvelle
+image.</li>
 </ul>
 <blockquote>
 <p>Si l&#39;écriture s&#39;interrompt – Wi-Fi perdu, page fermée –, le FPGA ne
 redémarre que lorsqu&#39;une image complète se trouve dans la flash. Rien
-n&#39;est cassé : écrivez simplement l&#39;image une nouvelle fois. FA_Control
+n&#39;est cassé : écrivez-la simplement une nouvelle fois. FA_Control
 lui-même continue de fonctionner et reste joignable.</p>
 </blockquote>
 <p>Sur la carte v7, il n&#39;y a pas de banc DIP : FA_Control est allumé
@@ -701,19 +772,21 @@ bobines, le son, les interrupteurs et les afficheurs. C&#39;est l&#39;outil pour
 les pannes qui n&#39;apparaissent qu&#39;en cours de partie : une lampe qui ne
 s&#39;allume jamais, une bobine jamais actionnée, un interrupteur qui n&#39;est
 pas pris en compte.</p>
-<p>Le sélecteur en haut de la page, <strong>MONITOR MODE | CONTROL
-MODE</strong>, choisit le mode. À partir du firmware 1.26, le mode moniteur
-démarre tout seul à l&#39;ouverture de la page. Dans une fenêtre large, tout
-tient sur un écran, avec les afficheurs et les interrupteurs en haut ; sur
-un téléphone, les champs restent les uns sous les autres.</p>
+<p>Le sélecteur en haut de la page, <strong>MONITOR MODE | CONTROL MODE
+| CONFIG MODE</strong>, choisit le mode (<a href="#5-ouvrir-la-page">chapitre 5</a>). Le mode moniteur démarre tout
+seul à l&#39;ouverture de la page. Sur le piggyback JTAG, il a besoin d&#39;un
+design FPGA avec lien FA ; sans lui, le bouton est grisé. Dans une
+fenêtre large, tout tient sur un écran, avec les afficheurs et les
+interrupteurs en haut ; sur un téléphone, les champs restent les uns
+sous les autres.</p>
 <p><strong>Mode d&#39;emploi :</strong></p>
 <ol type="1">
-<li>Ouvrez la page ou appuyez en haut sur <strong>MONITOR MODE</strong>. Si
-vous êtes connecté en mode contrôle, FA_Control demande d&#39;abord confirmation :
-rendre le contrôle redémarre le jeu.</li>
-<li>La barre passe au vert et affiche <strong>MONITOR MODE - THE GAME KEEPS
-RUNNING</strong>. La page est rafraîchie deux fois par
-seconde et montre :
+<li>Ouvrez la page ou appuyez en haut sur <strong>MONITOR MODE</strong>.
+Si vous êtes connecté en mode contrôle, FA_Control demande d&#39;abord
+confirmation : rendre le contrôle redémarre le jeu.</li>
+<li>La barre passe au vert et affiche <strong>MONITOR MODE - THE GAME
+KEEPS RUNNING</strong>. La page est rafraîchie deux fois par seconde et
+montre :
 <ul>
 <li><strong>STATE</strong> — si une partie est en cours ou si le mode
 attract est actif, ainsi que l&#39;appareil et le jeu.</li>
@@ -724,8 +797,8 @@ cuivre.</li>
 <li><strong>COILS</strong> — chaque impulsion allume sa tuile pendant
 une seconde. Même l&#39;impulsion la plus courte n&#39;est jamais perdue.</li>
 <li><strong>SOUND</strong> — de même pour les lignes de son. Sur
-GottFA1, ce sont les tons 10, 100 et 1000. Les cartes sans lignes de son,
-comme SternFA, n&#39;affichent pas ce champ.</li>
+GottFA1, ce sont les tons 10, 100 et 1000. Les cartes sans lignes de
+son, comme SternFA, n&#39;affichent pas ce champ.</li>
 <li><strong>SWITCHES</strong> — les interrupteurs fermés sont remplis de
 vert.</li>
 </ul></li>
@@ -737,19 +810,19 @@ apparaissent ici aussi sur les tuiles. En mode moniteur, les lampes, les
 bobines, les afficheurs et le son ne peuvent pas être commandés —
 FA_Control refuse ces commandes jusqu&#39;à ce que vous vous connectiez en
 mode contrôle.</p>
-<p><strong>Simuler des interrupteurs</strong> (à partir du firmware 1.26,
-SternFA HW 2.0 à partir de 5.3.2, avec le DIP d&#39;option 4 sur ON ; le DIP
-est lu au démarrage, le changer demande donc un reset). Un clic sur une
-tuile sous <strong>SWITCHES</strong> ferme cet interrupteur pour le jeu en
-cours ; un cadre en pointillés le signale. Un nouveau clic ou
-<strong>RELEASE ALL</strong> le rouvre. Plusieurs interrupteurs peuvent être
-fermés en même temps. Un interrupteur simulé peut seulement fermer : un
-interrupteur réellement fermé reste fermé.</p>
+<p><strong>Simuler des interrupteurs</strong> (à partir du firmware
+1.26, SternFA HW 2.0 à partir de 5.3.2, avec le DIP d&#39;option 4 sur ON ;
+le DIP est lu au démarrage, le changer demande donc un reset). Un clic
+sur une tuile sous <strong>SWITCHES</strong> ferme cet interrupteur pour
+le jeu en cours ; un cadre en pointillés le signale. Un nouveau clic ou
+<strong>RELEASE ALL</strong> le rouvre. Plusieurs interrupteurs peuvent
+être fermés en même temps. Un interrupteur simulé peut seulement fermer
+: un interrupteur réellement fermé reste fermé.</p>
 <p><strong>Attention :</strong> le jeu réagit comme à un véritable
-interrupteur, des bobines peuvent donc s&#39;actionner. Ne mettez pas les mains
-dans le flipper. Tous les interrupteurs simulés sont relâchés environ
-2 secondes après que la page a cessé d&#39;interroger, par exemple si vous la
-quittez ou si la connexion est coupée.</p>
+interrupteur, des bobines peuvent donc s&#39;actionner. Ne mettez pas les
+mains dans le flipper. Tous les interrupteurs simulés sont relâchés
+environ 2 secondes après que la page a cessé d&#39;interroger, par exemple
+si vous la quittez ou si la connexion est coupée.</p>
 <p><strong>S&#39;il ne démarre pas</strong>, la raison est indiquée dans la
 barre. <strong>START MONITOR</strong> fait un nouvel essai.</p>
 <table>
@@ -772,7 +845,8 @@ HARDWARE</strong></td>
 les deux à jour.</td>
 </tr>
 <tr>
-<td><strong>NO ANSWER - CHECK WIRING AND POWER</strong></td>
+<td><strong>NO ANSWER FROM THE FA BOARD - IS THE GAME SWITCHED
+ON?</strong></td>
 <td>Comme au chapitre 6 : personne ne répond.</td>
 </tr>
 </tbody>
@@ -803,9 +877,10 @@ Pour cela, l&#39;appareil doit être connecté à votre réseau domestique — s
 propre réseau <code>FA-Control</code> n&#39;a pas d&#39;accès à Internet, et le
 bouton y est désactivé.</p>
 <ol type="1">
-<li>Ouvrez la tuile <strong>06 · WI-FI</strong>, section
-<strong>FIRMWARE</strong>. <strong>INSTALLED VERSION</strong> indique ce
-qui tourne actuellement.</li>
+<li>Appuyez sur <strong>CONFIG MODE</strong> et ouvrez la tuile
+<strong>06 · WI-FI</strong>, section <strong>FIRMWARE</strong>.
+<strong>INSTALLED VERSION</strong> indique ce qui tourne
+actuellement.</li>
 <li>Appuyez sur <strong>LOAD VERSIONS</strong>. Après un instant
 apparaît une liste déroulante avec les versions disponibles, la plus
 récente en premier.</li>

@@ -164,3 +164,12 @@ int fpga_vjtag_link_io(const uint8_t *out, int n_out, uint8_t *in, int max_in,
 
 /* Steuerbit (ersetzt CTRL_REQ/GPIO10). Totmann im FPGA: 2 s ohne Datenscan -> aus. */
 esp_err_t fpga_vjtag_link_ctrl(bool on);
+
+/* Art eines Link-Designs aus seiner Kennung: "full", "monitor", "control",
+ * "service"; "" wenn id keine Link-Kennung ist. */
+const char *fpga_vjtag_kind_str(uint32_t id);
+
+/* Art des laufenden Designs fuer die Oberflaeche ("link" in /api/config):
+ * wie fpga_vjtag_kind_str(), "none" ohne Link. Nutzt den Zwischenspeicher von
+ * fpga_vjtag_link_present() (Kennung hoechstens alle 2 s neu gelesen). */
+const char *fpga_vjtag_link_kind(void);

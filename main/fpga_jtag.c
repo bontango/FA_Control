@@ -689,6 +689,7 @@ int fpga_vjtag_xfer(const fpga_vjtag_hub_t *hub, const uint8_t *out, int n_out,
 /* ---- Byte-Strom fuer lisy.c (Stufe 4) ------------------------------------- */
 
 static fpga_vjtag_hub_t s_link;
+static uint32_t s_link_id;              /* Kennung des Links, fuer die Art */
 static bool    s_link_ok;
 static int64_t s_link_checked;          /* letzte Pruefung der Kennung, us */
 
@@ -706,8 +707,8 @@ static bool link_attach(void)
     }
     s_link_checked = now;
     bool was = s_link_ok;
-    s_link_ok = fpga_vjtag_probe(&s_link) == ESP_OK &&
-                FPGA_VJTAG_IS_LINK(fpga_vjtag_read_id(&s_link));
+    s_link_id = (fpga_vjtag_probe(&s_link) == ESP_OK) ? fpga_vjtag_read_id(&s_link) : 0;
+    s_link_ok = FPGA_VJTAG_IS_LINK(s_link_id);
     if (s_link_ok != was) {
         ESP_LOGI(TAG, "fa_vjtag_link %s", s_link_ok ? "gefunden" : "nicht (mehr) da");
     }
@@ -723,6 +724,24 @@ void fpga_vjtag_link_invalidate(void)
 bool fpga_vjtag_link_present(void)
 {
     return link_attach();
+}
+
+const char *fpga_vjtag_kind_str(uint32_t id)
+{
+    if (!FPGA_VJTAG_IS_LINK(id)) {
+        return "";
+    }
+    switch (FPGA_VJTAG_LINK_KIND(id)) {
+    case 'M': return "monitor";
+    case 'C': return "control";
+    case 'S': return "service";
+    default:  return "full";
+    }
+}
+
+const char *fpga_vjtag_link_kind(void)
+{
+    return link_attach() ? fpga_vjtag_kind_str(s_link_id) : "none";
 }
 
 int fpga_vjtag_link_io(const uint8_t *out, int n_out, uint8_t *in, int max_in,

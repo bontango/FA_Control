@@ -40,6 +40,9 @@ typedef enum {
     FA_CONN_MONITOR,       /* Monitor laeuft, Bestueckung ist gefuellt */
     FA_CONN_NO_MONITOR,    /* Gegenstelle antwortet, kennt 0x6E aber nicht */
     FA_CONN_MON_FORMAT,    /* 0x6E-Antwort passt nicht zur gemeldeten Bestueckung */
+    /* Seit v1.32: JTAG-Piggyback, das laufende FPGA-Design hat keinen fa_vjtag_link.
+     * Kein Verdrahtungsfehler -- es fehlt nur das passende Design (Menue CONFIG › FPGA). */
+    FA_CONN_NO_LINK,
 } fa_conn_state_t;
 
 typedef struct {

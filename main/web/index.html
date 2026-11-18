@@ -66,6 +66,10 @@ h1 small{
 }
 #modesw button:hover{color:var(--cu-hi)}
 #modesw button.act{background:var(--cu);color:#fff}
+/* Modus, den Board oder FPGA-Design gerade nicht koennen (seit 1.32): ausgegraut,
+   der Grund steht im Tooltip und im Banner. */
+#modesw button:disabled{opacity:.35;cursor:not-allowed}
+#modesw button:disabled:hover{color:var(--bg)}
 #apwarn{
   display:none;margin:1rem 1.2rem 0;padding:.6rem .8rem;
   border:1px solid var(--warn);background:var(--warn-bg);color:var(--warn);
@@ -81,9 +85,12 @@ h1 small{
 }
 #connbar.ok{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
 #connbar.bad{border-color:var(--warn);background:var(--warn-bg);color:var(--warn)}
+/* Kein Fehler, nur ein Hinweis: FA-Board aus oder Design ohne FA-Link */
+#connbar.note{border-color:var(--cu);color:var(--cu-dk)}
 main{max-width:880px;margin:0 auto;padding:1.4rem 1.2rem}
 /* ---- Hauptmenue ---- */
-#menu{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.8rem}
+#menu,#cmenu{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.8rem}
+#cmenu{margin-top:1rem}
 .tile{
   background:var(--panel);
   border:1px solid var(--line-2);
@@ -277,6 +284,7 @@ legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;f
   <div id="modesw">
     <button id="m_monitor" class="act">MONITOR MODE</button>
     <button id="m_control">CONTROL MODE</button>
+    <button id="m_config">CONFIG MODE</button>
   </div>
   <img id="logo" src="/logo.png" alt="LISY development" width="224" height="114">
 </header>
@@ -313,13 +321,24 @@ legend{font-size:.7rem;color:var(--cu-dk);padding:0 .5rem;letter-spacing:.18em;f
     <button class="tile" data-s="switches" disabled><span class="no">03</span><span class="nm">SWITCHES</span><span class="ds">STATUS (READ ONLY)</span></button>
     <button class="tile" data-s="sounds" disabled><span class="no">04</span><span class="nm">SOUND</span><span class="ds">PLAY / STOP</span></button>
     <button class="tile" data-s="disps" disabled><span class="no">05</span><span class="nm">DISPLAYS</span><span class="ds">DIGITS OR TEXT</span></button>
+  </div>
+</div>
+
+<!-- Config-Modus (seit 1.32): alles, was ohne Verbindung zum Spiel geht. Kacheln nur,
+     wenn Board und Firmware sie koennen ("namesfs", "romfs", "fsram"/"fepcs" in
+     /api/config). Auf dem JTAG-Piggyback ohne FA-Link startet die Seite hier. -->
+<section id="config"><div class="shead"><h2>CONFIG</h2></div>
+  <fieldset><legend>THIS DEVICE</legend>
+    <p class="hint" id="cfgboard" style="margin:0">–</p>
+    <p class="hint" id="cfgfa" style="margin:.3rem 0 0">–</p>
+  </fieldset>
+  <div id="cmenu">
     <button class="tile" data-s="wifi"><span class="no">06</span><span class="nm">WI-FI</span><span class="ds">NETWORK · FIRMWARE</span></button>
     <button class="tile" data-s="names" id="t_names"><span class="no">07</span><span class="nm">NAMES</span><span class="ds">NAMING FILES · UPLOAD · LOAD</span></button>
     <button class="tile" data-s="roms" id="t_roms"><span class="no">08</span><span class="nm">GAME ROMS</span><span class="ds">BOOT WITHOUT SD CARD · UPLOAD · LOAD</span></button>
-    <button class="tile" data-s="fpga" id="t_fpga" style="display:none"><span class="no">09</span><span class="nm">FPGA</span><span class="ds">EPCS · UPLOAD · RECONFIGURE</span></button>
-    <button class="tile" data-s="fpgaj" id="t_fpgaj" style="display:none"><span class="no">09</span><span class="nm">FPGA</span><span class="ds">JTAG · LOAD DESIGN</span></button>
+    <button class="tile" data-s="fpga" id="t_fpga" style="display:none"><span class="no">09</span><span class="nm">FPGA</span><span class="ds" id="t_fpga_ds">DESIGN · INSTALL</span></button>
   </div>
-</div>
+</section>
 
 <!-- Monitor-Modus: eigene Seite, ueber den Umschalter in der Kopfleiste. Liest den
      Istzustand per LISY 0x6E, ohne Kontrolle -- das Spiel laeuft ungestoert. -->
@@ -502,37 +521,62 @@ name=Airborne Avenger
   </fieldset>
 </section>
 
-<!-- Nur auf dem EP4CE6 dev board v7 ("fpga":1 in /api/config). Jeder Zugriff
-     auf das EPCS haelt das FPGA im Reset -- das sagt die Seite vorher. -->
+<!-- Kachel 09 FPGA, seit 1.32 eine Seite fuer Board v7 und JTAG-Piggyback. Was
+     sichtbar ist, entscheiden "fsram" (Design per JTAG in den SRAM, Klasse .sr) und
+     "fepcs" (Konfigurationsflash dauerhaft schreiben, Klasse .ep) aus /api/config.
+     Jeder Zugriff ersetzt das laufende Design -- das sagt die Seite vorher. -->
 <section id="fpga"><div class="shead"><button class="back">◀ MENU</button><h2>FPGA</h2></div>
-  <p class="hint">THIS DEVICE SITS ON THE FPGA BOARD AND WRITES ITS CONFIGURATION FLASH (EPCS)
-    DIRECTLY. EVERY ACTION BELOW HOLDS THE FPGA IN RESET: THE GAME RESTARTS AND A RUNNING
-    CONNECTION ENDS. ONLY THE FIRST 512 KB ARE WRITTEN — THE GAME ROMS STORED FROM 0x080000
-    STAY UNTOUCHED. WORKS WITHOUT CONNECT.</p>
+  <p class="hint">EVERY ACTION BELOW REPLACES THE RUNNING DESIGN: THE GAME RESTARTS AND A RUNNING
+    CONNECTION ENDS. WORKS WITHOUT CONNECT.</p>
   <fieldset><legend>STATUS</legend>
-    <div class="val" style="border-color:var(--cu)">
+    <div class="val sr" style="border-color:var(--cu)">
+      <span>FPGA</span><b id="fjid">–</b>
+    </div>
+    <div class="val sr" style="border-color:var(--cu)">
+      <span>RUNNING DESIGN</span><b id="fjnode">–</b>
+    </div>
+    <div class="val sr" style="border-color:var(--cu)">
+      <span>FA CONTROL</span><b id="fjkind">–</b>
+    </div>
+    <div class="val ep" style="border-color:var(--cu)">
       <span>CONF_DONE</span><b id="fpcd">–</b>
     </div>
-    <div class="val" style="border-color:var(--cu)">
+    <div class="val ep" style="border-color:var(--cu)">
       <span>EPCS</span><b id="fpid">–</b>
     </div>
-    <p class="hint" id="fplast" style="margin:.8rem 0 0">–</p>
+    <p class="hint ep" id="fplast" style="margin:.8rem 0 0">–</p>
     <div class="row">
-      <button class="btn" id="fpprobe">IDENTIFY EPCS</button>
-      <button class="btn" id="fpreconf">RECONFIGURE</button>
+      <button class="btn sr" id="fjcheck">CHECK</button>
+      <button class="btn ep" id="fpprobe">IDENTIFY EPCS</button>
+      <button class="btn ep" id="fpreconf">RECONFIGURE</button>
     </div>
   </fieldset>
-  <fieldset><legend>WRITE A NEW IMAGE</legend>
+  <fieldset class="ep"><legend>INSTALL PERMANENTLY</legend>
     <div class="row" style="margin-top:0">
-      <input type="file" id="fpfile" accept=".rbf,.rpd">
-      <label class="hint" style="margin:0"><input type="checkbox" id="fprev" checked> REVERSE BITS (.RBF)</label>
+      <input type="file" id="fpfile" accept=".jic,.rbf,.rpd">
+      <label class="hint" id="fprevl" style="margin:0;display:none"><input type="checkbox" id="fprev" checked> REVERSE BITS (.RBF)</label>
       <button class="btn" id="fpup">WRITE</button>
     </div>
     <div class="row"><span class="hint" id="fpstat" style="margin:0"></span></div>
-    <p class="hint" style="margin:.8rem 0 0">IF THE UPLOAD BREAKS OFF, THE FPGA DOES NOT START UNTIL
-      A COMPLETE IMAGE IS WRITTEN — JUST WRITE IT AGAIN.</p>
+    <p class="hint" style="margin:.8rem 0 0">THE .JIC FROM QUARTUS (CONVERT PROGRAMMING FILES) — THE SAME
+      FILE A USB BLASTER WOULD PROGRAM. IF IT ALSO HOLDS GAME ROMS, THEY ARE WRITTEN TOO. A .RBF OR
+      .RPD WRITES THE FPGA IMAGE ONLY. THE DESIGN STARTS RIGHT AFTERWARDS AND AFTER EVERY POWER-ON.
+      IF THE UPLOAD BREAKS OFF, THE FPGA DOES NOT START UNTIL A COMPLETE IMAGE IS WRITTEN — JUST
+      WRITE IT AGAIN.</p>
   </fieldset>
-  <fieldset><legend>WRITE GAME ROMS</legend>
+  <fieldset class="sr"><legend>TEST A DESIGN (UNTIL POWER-OFF)</legend>
+    <div class="row" style="margin-top:0">
+      <input type="file" id="fjfile" accept=".fjz">
+      <button class="btn" id="fjload">LOAD</button>
+    </div>
+    <div class="row"><span class="hint" id="fjstat" style="margin:0"></span></div>
+    <p class="hint" style="margin:.8rem 0 0">A .FJZ FILE MADE FROM THE QUARTUS .SOF OF THIS BOARD
+      (MAKE_JTAG_BLOB.PY --SOF … --OUT …). TAKES ABOUT 2 S. IT RUNS UNTIL THE NEXT POWER-OFF, THEN
+      THE BOARD BOOTS ITS INSTALLED DESIGN AGAIN. LOAD ONLY DESIGNS BUILT FOR THIS BOARD — THE FPGA
+      ID ONLY TELLS THE CHIP.</p>
+  </fieldset>
+  <details class="ep"><summary class="hint" style="cursor:pointer;margin:0 0 .9rem">ADVANCED — GAME ROMS IN THE EPCS · READ BACK</summary>
+  <fieldset><legend>WRITE GAME ROMS TO THE EPCS</legend>
     <div class="row" style="margin-top:0">
       <input type="file" id="fprfile" accept=".bin">
       <span class="hint" style="margin:0">ADDRESS</span>
@@ -542,7 +586,8 @@ name=Airborne Avenger
     <div class="row"><span class="hint" id="fprstat" style="margin:0"></span></div>
     <p class="hint" style="margin:.8rem 0 0">THE GAME ROMS FOR BOOTING WITHOUT SD CARD, AS A RAW
       BINARY OF THE ROM AREA — FOR GOTTFA1_PLUS MADE BY MAKE_FLASH_HEX.PS1 -BIN, STARTING AT
-      0x080000. WRITTEN AS IS, NO BIT REVERSAL. THE FPGA IMAGE BELOW 0x080000 IS NEVER TOUCHED.</p>
+      0x080000. WRITTEN AS IS, NO BIT REVERSAL. THE FPGA IMAGE BELOW 0x080000 IS NEVER TOUCHED.
+      A .JIC WITH GAME ROMS DOES THIS BY ITSELF.</p>
   </fieldset>
   <fieldset><legend>READ BACK</legend>
     <div class="row" style="margin-top:0">
@@ -553,39 +598,7 @@ name=Airborne Avenger
       <button class="btn" id="fpdump">DOWNLOAD</button>
     </div>
   </fieldset>
-</section>
-
-<!-- Nur auf dem JTAG-Piggyback an P5 ("fpga":2 in /api/config). Ein Design wird per
-     JTAG in den SRAM des FPGA geladen -- bis zum Ausschalten, dann bootet wieder das
-     Design aus dem Konfigurationsflash. -->
-<section id="fpgaj"><div class="shead"><button class="back">◀ MENU</button><h2>FPGA</h2></div>
-  <p class="hint">THIS DEVICE TALKS TO THE FPGA OVER ITS JTAG HEADER. FA CONTROL NEEDS A DESIGN WITH
-    THE FA LINK (VIRTUAL JTAG) — THE RELEASED .JIC IN THE CONFIGURATION FLASH HAS NONE. LOAD ONE
-    BELOW: IT RUNS UNTIL THE NEXT POWER-OFF, THEN THE BOARD BOOTS ITS OWN DESIGN AGAIN.</p>
-  <fieldset><legend>STATUS</legend>
-    <div class="val" style="border-color:var(--cu)">
-      <span>FPGA</span><b id="fjid">–</b>
-    </div>
-    <div class="val" style="border-color:var(--cu)">
-      <span>RUNNING DESIGN</span><b id="fjnode">–</b>
-    </div>
-    <div class="val" style="border-color:var(--cu)">
-      <span>FA CONTROL</span><b id="fjkind">–</b>
-    </div>
-    <div class="row">
-      <button class="btn" id="fjcheck">CHECK</button>
-    </div>
-  </fieldset>
-  <fieldset><legend>LOAD A DESIGN</legend>
-    <div class="row" style="margin-top:0">
-      <input type="file" id="fjfile" accept=".fjz">
-      <button class="btn" id="fjload">LOAD</button>
-    </div>
-    <div class="row"><span class="hint" id="fjstat" style="margin:0"></span></div>
-    <p class="hint" style="margin:.8rem 0 0">A .FJZ FILE MADE FROM THE QUARTUS .SOF OF THIS BOARD
-      (MAKE_JTAG_BLOB.PY --SOF … --OUT …). TAKES ABOUT 2 S. THE GAME RESTARTS AND A RUNNING
-      CONNECTION ENDS. LOAD ONLY DESIGNS BUILT FOR THIS BOARD — THE FPGA ID ONLY TELLS THE CHIP.</p>
-  </fieldset>
+  </details>
 </section>
 
 </main>
@@ -612,29 +625,38 @@ function getj(p,cb){fetch(p).then(function(r){return r.json()}).then(cb)
   .catch(function(){})}
 
 /* ---- Navigation ----
-   Die Startseite ist der Verbindungsaufbau. Steuerungsseiten gibt es nur,
-   solange die Gegenstelle uns die Kontrolle gewaehrt. */
+   Drei Modi in der Kopfleiste (seit 1.32):
+     MONITOR  eigene Seite, nur lesen
+     CONTROL  Startseite #home mit Verbindungsaufbau und den Kacheln 01-05
+     CONFIG   Seite #config mit den Kacheln 06-09 -- geht ohne Verbindung
+   Die Unterseiten gehoeren zu CONTROL oder CONFIG; MENU fuehrt dorthin zurueck. */
+var CONFIG_PAGES={config:1,wifi:1,names:1,roms:1,fpga:1};
 function show(id){
   $("#home").style.display=id?"none":"block";
   document.querySelectorAll("section").forEach(function(s){s.classList.remove("act")});
   if(id)$("#"+id).classList.add("act");
   clearInterval(pollTimer);pollTimer=null;
   clearInterval(homeTimer);homeTimer=null;
-  document.body.classList.toggle("mon",id==="monitor");
-  $("#m_monitor").classList.toggle("act",id==="monitor");
-  $("#m_control").classList.toggle("act",id!=="monitor");
+  var mode=id==="monitor"?"monitor":CONFIG_PAGES[id]?"config":"control";
+  document.body.classList.toggle("mon",mode==="monitor");
+  $("#m_monitor").classList.toggle("act",mode==="monitor");
+  $("#m_control").classList.toggle("act",mode==="control");
+  $("#m_config").classList.toggle("act",mode==="config");
   if(id==="switches"){poll();pollTimer=setInterval(poll,1000)}
   if(id==="monitor"){monShow();if(cfg&&cfg.conn===6){monPoll();pollTimer=setInterval(monPoll,MON_POLL)}}
   if(id==="names")nmList();
   if(id==="roms")romList();
-  if(id==="fpga")fpInfo("");
-  if(id==="fpgaj")fjInfo();
-  if(!id)homeTimer=setInterval(refreshConn,2000);
+  if(id==="fpga")fpgaOpen();
+  /* Startseite und Config laufen mit: Kontrolle oder FA-Link koennen jederzeit
+     kommen und gehen (Spiel aus, anderes Design geladen). */
+  if(!id||id==="config")homeTimer=setInterval(refreshConn,2000);
 }
 document.querySelectorAll(".tile").forEach(function(t){
   t.onclick=function(){show(t.dataset.s)}});
 document.querySelectorAll(".back").forEach(function(b){
-  b.onclick=function(){show(null)}});
+  b.onclick=function(){
+    var sec=b.closest("section");
+    show(sec&&CONFIG_PAGES[sec.id]?"config":null)}});
 
 /* ---- Grids ----
    base = Nummer der ersten Kachel. Spulen zaehlen ab 1 (LISY zaehlt sie so, und es
@@ -761,10 +783,39 @@ function buildGrids(){
 
 /* ---- Verbindungszustand ---- */
 /* cfg.conn: 0=nicht verbunden 1=aktiv 2=DIP aus 3=Anforderung fehlt 4=sonstiges 5=keine Antwort
-   6=Monitor 7=FPGA ohne Monitor 8=Monitor-Daten passen nicht */
+   6=Monitor 7=FPGA ohne Monitor 8=Monitor-Daten passen nicht 9=Design ohne FA-Link (Piggyback)
+   cfg.link: "uart" (Sockel, v7) oder Art des FA-Links auf dem JTAG-Piggyback:
+   full / monitor / control / service / none */
+var BOARD_NAMES={socket:"SOCKET · UART",v7:"BOARD V7",jtag:"JTAG PIGGYBACK"};
+var LINK_NAMES={full:"FULL — MONITOR AND CONTROL",monitor:"MONITOR ONLY",
+  control:"CONTROL ONLY",service:"SERVICE — CONTROL, NO GAME",none:"NONE"};
+function canMon(){return !cfg||cfg.link==="uart"||cfg.link==="full"||cfg.link==="monitor"}
+function canCtl(){return !cfg||cfg.link==="uart"||cfg.link==="full"||cfg.link==="control"||
+  cfg.link==="service"}
+/* Warum ein Modus nicht geht -- Tooltip am Umschalter */
+function modeWhy(){
+  return cfg&&cfg.link==="none"?"THE FPGA DESIGN HAS NO FA LINK — LOAD ONE UNDER CONFIG › FPGA":
+    "THE FPGA DESIGN ("+(LINK_NAMES[cfg&&cfg.link]||"")+") CANNOT DO THIS"}
+function applyModes(){
+  var m=$("#m_monitor"),c=$("#m_control");
+  m.disabled=!canMon();c.disabled=!canCtl();
+  m.title=m.disabled?modeWhy():"";c.title=c.disabled?modeWhy():"";
+  /* Config-Seite: Board und FA-Verbindung in Klartext */
+  $("#cfgboard").textContent="BOARD: "+(BOARD_NAMES[cfg.board]||"–")+
+    (cfg.link&&cfg.link!=="uart"?" · FA LINK IN THE FPGA DESIGN: "+(LINK_NAMES[cfg.link]||cfg.link):"");
+  $("#cfgfa").textContent="FA CONNECTION: "+cfg.connmsg.toUpperCase();
+  /* Kacheln nur, wenn es etwas zu tun gibt. NAMES und GAME ROMS haben eigene
+     Partitionen, die nur per USB kommen. */
+  $("#t_names").style.display=cfg.namesfs?"":"none";
+  $("#t_roms").style.display=cfg.romfs?"":"none";
+  $("#t_fpga").style.display=(cfg.fsram||cfg.fepcs)?"":"none";
+  $("#t_fpga_ds").textContent=cfg.fepcs?"INSTALL .JIC · TEST DESIGN · EPCS":"TEST A DESIGN (.FJZ)";
+}
 function applyConn(){
   var live=(cfg.conn===1),good=live||cfg.conn===6,bar=$("#connbar");
-  bar.className=(good?"ok":(cfg.conn===0?"":"bad"));
+  applyModes();
+  /* Spiel aus (5) oder Design ohne FA-Link (9) ist kein Fehler: Hinweis statt Warnung */
+  bar.className=(good?"ok":(cfg.conn===0?"":(cfg.conn===5||cfg.conn===9)?"note":"bad"));
   bar.textContent=(good?"● ":"▲ ")+cfg.connmsg.toUpperCase();
 
   $("#conninfo").textContent=live
@@ -789,18 +840,9 @@ function applyConn(){
       (cfg.wd?"RUNNING":"OFF")+" · LAST REPLY "+cfg.wdlast;
   }
 
-  /* Steuerungskacheln 01-05 nur bei gewaehrter Kontrolle. WI-FI, NAMES und
-     GAME ROMS bleiben offen: Netz einrichten und Dateien verwalten geht auch ohne. */
-  document.querySelectorAll(".tile").forEach(function(t){
-    t.disabled=(t.dataset.s!=="wifi"&&t.dataset.s!=="names"&&t.dataset.s!=="roms"&&
-                t.dataset.s!=="fpga"&&t.dataset.s!=="fpgaj")&&!live});
-  /* Ohne Partition (Geraet nur per OTA aktualisiert) gibt es nichts zu verwalten. */
-  $("#t_names").style.display=cfg.namesfs?"":"none";
-  /* ROMs haben eine eigene Partition -- sie kommt wie die der Namen nur per USB. */
-  $("#t_roms").style.display=cfg.romfs?"":"none";
-  /* FPGA: 1 = Board v7 (EPCS schreiben), 2 = JTAG-Piggyback (Design in den SRAM). */
-  $("#t_fpga").style.display=cfg.fpga===1?"":"none";
-  $("#t_fpgaj").style.display=cfg.fpga===2?"":"none";
+  /* Steuerungskacheln 01-05 nur bei gewaehrter Kontrolle. Die Kacheln von CONFIG
+     (06-09) gehen ohne -- ob sie sichtbar sind, regelt applyModes(). */
+  document.querySelectorAll("#menu .tile").forEach(function(t){t.disabled=!live});
 }
 
 /* Auf der Startseite mitlaufen lassen: die Gegenstelle kann die Kontrolle
@@ -947,6 +989,8 @@ function monStart(){
     .catch(function(){toast("NO CONNECTION")})}
 $("#m_monitor").onclick=function(){
   if(cfg&&cfg.conn===6)show("monitor");else monStart()};
+/* Config beendet nichts: ein laufender Monitor bleibt auf dem Geraet stehen. */
+$("#m_config").onclick=function(){show("config")};
 $("#mstart").onclick=monStart;
 $("#msimrel").onclick=function(){
   api("/api/monsw?all=0",function(){monSim={};monSimShow()})};
@@ -1328,13 +1372,17 @@ function init(){
   getj("/api/config",function(c){
     cfg=c;build();
     if(c.conn===6)show("monitor");
-    else if(c.conn!==1)fetch("/api/monitor",{method:"POST"}).then(function(r){return r.json()})
-      .then(function(m){cfg=m;build();if(m.conn===6)show("monitor")})
+    else if(c.conn===1)show(null);
+    /* Seit 1.32: kann der Monitor nicht (FA-Board aus, Design ohne Link oder nur
+       Steuerung), ist CONFIG die Startseite -- nicht eine Fehlermeldung. */
+    else if(!canMon())show("config");
+    else fetch("/api/monitor",{method:"POST"}).then(function(r){return r.json()})
+      .then(function(m){cfg=m;build();show(m.conn===6?"monitor":"config")})
       .catch(function(){toast("NO CONNECTION")})});
   getj("/api/status",function(s){
     wifiMode=s.mode;
-    /* Board-Variante der Firmware (eigenes Image je Variante, seit 1.30 angezeigt) */
-    var bd={socket:"SOCKET · UART",v7:"BOARD V7",jtag:"JTAG PIGGYBACK"}[s.board]||"";
+    /* Erkanntes Board (seit 1.31 ein Image fuer alle) */
+    var bd=BOARD_NAMES[s.board]||"";
     $("#status").innerHTML="V<b>"+s.ver+"</b>"+(bd?" · <b>"+bd+"</b>":"")+
       " · WI-FI <b>"+s.mode.toUpperCase()+"</b> · IP <b>"+s.ip+"</b>";
     $("#fwver").textContent="INSTALLED VERSION: "+s.ver+(bd?" ("+bd+")":"");
@@ -1346,7 +1394,16 @@ function init(){
       $("#nmfetch").disabled=true;
       $("#romfetch").disabled=true;
       $("#nmstat").textContent="DOWNLOAD NOT AVAILABLE IN AP MODE — UPLOAD STILL WORKS"}})}
-/* ---- FPGA (nur Board v7) ----
+/* ---- FPGA (Kachel 09, Board v7 und JTAG-Piggyback) ----
+   Abschnitte mit Klasse .sr brauchen "fsram" (Design per JTAG in den SRAM), die mit
+   .ep "fepcs" (Konfigurationsflash schreiben). */
+function fpgaOpen(){
+  document.querySelectorAll("#fpga .sr").forEach(function(e){e.style.display=cfg.fsram?"":"none"});
+  document.querySelectorAll("#fpga .ep").forEach(function(e){e.style.display=cfg.fepcs?"":"none"});
+  if(cfg.fsram)fjInfo();
+  if(cfg.fepcs)fpInfo("")}
+
+/* ---- FPGA: EPCS (nur Board v7) ----
    Die Kennung des EPCS gibt es nur nach einem Zugriff, und der setzt das FPGA
    zurueck -- deshalb liest das Oeffnen der Seite nur CONF_DONE und das zuletzt
    Ermittelte, IDENTIFY EPCS holt die Kennung ausdruecklich. */
@@ -1390,11 +1447,84 @@ function fpUpload(f,query,btn,st){
   x.onerror=function(){btn.disabled=false;st.textContent="ERROR: NO CONNECTION";fpInfo("")};
   st.textContent="WRITING …";
   x.send(f)}
+function isJic(f){return /\.jic$/i.test(f.name)}
+/* REVERSE BITS gilt nur fuer .rbf/.rpd -- eine .jic weiss selbst, wie sie liegt. */
+$("#fpfile").onchange=function(){
+  var f=this.files[0];$("#fprevl").style.display=f&&!isJic(f)?"":"none"};
 $("#fpup").onclick=function(){
   var f=$("#fpfile").files[0];
   if(!f){toast("CHOOSE A FILE FIRST");return}
+  if(isJic(f)){jicWrite(f,this,$("#fpstat"));return}
   if(f.size>524288){toast("IMAGE TOO LARGE - AT MOST 512 KB");return}
   fpUpload(f,"addr=0&rev="+($("#fprev").checked?1:0),this,$("#fpstat"))};
+
+/* ---- .jic (seit 1.32) ----
+   Aufbau (Quartus "Convert Programming Files", an sys80.jic geprueft):
+     "JIC\0", u32, u32, dann Eintraege  u16 tag, u32 len (little endian), len Bytes
+     tag 2  = Baustein ("EP4CE6"), tag 27 = Flash ("EPCS16"),
+     tag 28 = Flash-Inhalt: 12 Byte Vorspann, dann das ganze Flash ab Adresse 0.
+   Der Inhalt liegt durchgehend bitgedreht zum EPCS (Bitstream wie die .rbf, ROMs
+   gedreht, TECHNICAL_REFERENCE 14.3) -- also beide Bereiche mit rev=1.
+   Zerlegt wird hier im Browser; der ESP bekommt zwei gewoehnliche fpgaup-Uploads:
+   Image ab 0 (hoechstens 512 KB) und, falls belegt, den ROM-Bereich ab 0x080000. */
+var JIC_IDCODE={EP4CE6:"0x020F10DD",EP4CE10:"0x020F10DD",EP4CE15:"0x020F20DD",
+  EP4CE22:"0x020F30DD","10CL006":"0x020F10DD","10CL010":"0x020F10DD","10CL016":"0x020F20DD",
+  "10CL025":"0x020F30DD"};
+function jicParse(buf){
+  var u8=new Uint8Array(buf),dv=new DataView(buf),tags={},p=12;
+  if(u8.length<12||String.fromCharCode(u8[0],u8[1],u8[2])!=="JIC")throw new Error("NOT A .JIC FILE");
+  while(p+6<=u8.length){
+    var t=dv.getUint16(p,true),l=dv.getUint32(p+2,true);
+    if(p+6+l>u8.length)throw new Error(".JIC FILE IS CUT OFF");
+    tags[t]=u8.subarray(p+6,p+6+l);p+=6+l}
+  function str(a){var r="";if(a)for(var i=0;i<a.length&&a[i];i++)r+=String.fromCharCode(a[i]);return r}
+  if(!tags[28]||tags[28].length<12+33)throw new Error(".JIC WITHOUT FLASH DATA");
+  return {dev:str(tags[2]).toUpperCase(),flash:str(tags[27]),data:tags[28].subarray(12)}}
+/* Laenge ohne die 0xFF am Ende (geloeschtes Flash muss man nicht schreiben) */
+function trimFF(a){var n=a.length;while(n>0&&a[n-1]===0xFF)n--;return a.subarray(0,n)}
+/* Ein Upload als Promise; prog(gesendet) fuer den gemeinsamen Fortschritt */
+function fpSend(blob,query,prog){
+  return new Promise(function(ok,fail){
+    var x=new XMLHttpRequest();
+    x.open("POST","/api/fpgaup?"+query);
+    x.upload.onprogress=function(e){if(e.lengthComputable)prog(e.loaded,e.loaded===e.total)};
+    x.onload=function(){x.status===200?ok():fail(new Error(x.responseText||("HTTP "+x.status)))};
+    x.onerror=function(){fail(new Error("NO CONNECTION"))};
+    x.send(blob)})}
+function jicWrite(f,btn,st){
+  var rd=new FileReader();
+  rd.onerror=function(){toast("FILE NOT READABLE")};
+  rd.onload=function(){
+    var j;
+    try{j=jicParse(rd.result)}catch(e){toast(e.message);return}
+    var img=trimFF(j.data.subarray(0,Math.min(0x80000,j.data.length)));
+    var roms=j.data.length>0x80000?trimFF(j.data.subarray(0x80000)):new Uint8Array(0);
+    if(img.length<33||img[32]!==0x6A){toast("NO FPGA IMAGE AT THE START OF THIS .JIC");return}
+    /* Laeuft das Image ohne Luecke ueber 512 KB hinaus, ist es zu gross (unkomprimiert,
+       E22) -- der Rest landete sonst als "ROMs" im ROM-Bereich. */
+    if(img.length===0x80000&&roms.length&&j.data[0x80000]!==0xFF){
+      toast("IMAGE LARGER THAN 512 KB - USE A COMPRESSED BITSTREAM");return}
+    var dev=(j.dev.match(/^(EP4CE|10CL)\d+/)||[""])[0];
+    fetch("/api/vjtag?info=1").then(function(r){return r.json()}).catch(function(){return {}})
+    .then(function(v){
+      var want=JIC_IDCODE[dev];
+      if(want&&v.idcode&&v.idcode!==want){
+        toast("THIS .JIC IS FOR "+dev+" - THE FPGA HERE IS "+v.idcode);return}
+      var what=j.dev+" · "+j.flash+" · IMAGE "+Math.round(img.length/1024)+" KB"+
+        (roms.length?" + GAME ROMS "+Math.round(roms.length/1024)+" KB":"");
+      if(!confirm("Write "+what+"?\n\n"+FP_WARN))return;
+      var total=img.length+roms.length;
+      function prog(base){return function(n,last){
+        st.textContent=last&&base+n>=total?"VERIFYING …":
+          "WRITING … "+Math.floor((base+n)*100/total)+" %"}}
+      btn.disabled=true;st.textContent="WRITING …";
+      fpSend(new Blob([img]),"addr=0&rev=1",prog(0))
+      .then(function(){if(roms.length)
+        return fpSend(new Blob([roms]),"addr=0x080000&rev=1",prog(img.length))})
+      .then(function(){st.textContent="DONE — "+what})
+      .catch(function(e){st.textContent="ERROR: "+e.message.toUpperCase()})
+      .then(function(){btn.disabled=false;fpInfo("");refreshConn()})})};
+  rd.readAsArrayBuffer(f)}
 $("#fprup").onclick=function(){
   var f=$("#fprfile").files[0],a=$("#fpraddr").value.trim();
   if(!f){toast("CHOOSE A FILE FIRST");return}
@@ -1409,7 +1539,7 @@ $("#fpdump").onclick=function(){
   if(!confirm(FP_WARN))return;
   location.href="/api/fpgadump?addr="+encodeURIComponent(a)+"&len="+encodeURIComponent(l)};
 
-/* ---- FPGA (nur JTAG-Piggyback) ----
+/* ---- FPGA: Design per JTAG (v7 und JTAG-Piggyback) ----
    CHECK fragt nur Hub und Kennung ab (/api/vjtag?info=1), ohne LISY-Bytes und ohne
    Steuerbit -- stoert eine laufende Verbindung nicht. */
 var FJ_NODES={fa_vjtag_link:"FA CONTROL READY (FA LINK)",vjtag_probe:"TEST NODE — NO FA CONTROL",
@@ -1420,7 +1550,8 @@ var FJ_KINDS={full:"FULL — MONITOR AND CONTROL",monitor:"MONITOR ONLY — NO C
 function fjInfo(){
   $("#fjnode").textContent="…";
   getj("/api/vjtag?info=1",function(j){
-    var known={"0x020F10DD":"EP4CE6 / 10CL006"};
+    var known={"0x020F10DD":"EP4CE6 / EP4CE10 / 10CL006","0x020F20DD":"EP4CE15",
+      "0x020F30DD":"EP4CE22"};
     $("#fjid").textContent=(j.idcode==="0x00000000"||j.idcode==="0xFFFFFFFF")?
       "NO ANSWER — CABLE?":(known[j.idcode]||"ID")+" · "+j.idcode;
     $("#fjnode").textContent=(FJ_NODES[j.node]||j.node)+(j.node!=="none"?" · "+j.id:"");
