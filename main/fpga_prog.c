@@ -1,5 +1,7 @@
 #include "fpga_prog.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
@@ -50,6 +52,12 @@ static spi_device_handle_t s_dev;
 static uint8_t *s_tx;        /* DMA-faehig, XFER_MAX */
 static uint8_t *s_rx;
 
+/* JTAG-Piggyback (Stufe B): SPI laeuft durch die Bruecke fpga/jtag_spi_bridge,
+ * jeder Transfer ist ein DR-Scan. s_spi_off = Versatz DATA0 -> TDO in Takten,
+ * je Sitzung an der Kennung des EPCS bestimmt (calibrate()). */
+static bool s_jtag;
+static int s_spi_off;
+
 /* Zuletzt Ermitteltes, fuer fpga_prog_info(). */
 static int s_id_ab = -1;
 static uint32_t s_jedec;
@@ -86,7 +94,16 @@ static uint8_t rev8(uint8_t b)
 
 static bool conf_done(void)
 {
+    if (board_type() == BOARD_JTAG) {
+        return fpga_jtag_conf_done() == 1;      /* keine Leitung: CHECK_STATUS */
+    }
     return gpio_get_level(BOARD_PIN_CONF_DONE) != 0;
+}
+
+bool fpga_prog_available(void)
+{
+    return board_type() == BOARD_V7 ||
+           (board_type() == BOARD_JTAG && fpga_jtag_bridge_known());
 }
 
 /* Open-drain: erst den Pegel setzen, dann die Richtung -- so gibt es beim
@@ -103,13 +120,32 @@ static void nconfig_release(void)
     gpio_set_direction(BOARD_PIN_NCONFIG, GPIO_MODE_INPUT);
 }
 
-/* Nach dem Loslassen: CONF_DONE muss kommen. */
+/* FPGA aus dem EPCS neu starten: v7 per nCONFIG-Leitung, JTAG-Piggyback per
+ * JTAG-Befehl PULSE_NCONFIG. */
+static void fpga_restart(void)
+{
+    if (board_type() == BOARD_JTAG) {
+        fpga_jtag_pulse_nconfig();
+    } else {
+        nconfig_hold();
+        nconfig_release();
+    }
+}
+
+/* Nach dem Loslassen: CONF_DONE muss kommen. Ohne Leitung (JTAG-Piggyback) erst
+ * fragen, wenn das FPGA aus dem EPCS geladen haben kann -- die Abfrage ist ein
+ * JTAG-Befehl, und den will man nicht mitten in die Konfiguration schicken. */
 static esp_err_t wait_conf_done(void)
 {
-    for (int t = 0; t < FPGA_CONF_DONE_MS; t += 10) {
-        vTaskDelay(pdMS_TO_TICKS(10));
+    int step = 10;
+    if (board_type() == BOARD_JTAG) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        step = 100;
+    }
+    for (int t = 0; t < FPGA_CONF_DONE_MS; t += step) {
+        vTaskDelay(pdMS_TO_TICKS(step));
         if (conf_done()) {
-            ESP_LOGI(TAG, "CONF_DONE nach ~%d ms", t + 10);
+            ESP_LOGI(TAG, "CONF_DONE nach ~%d ms", t + step);
             return ESP_OK;
         }
     }
@@ -134,6 +170,13 @@ static void pins_hiz(void)
 
 static void bus_close(void)
 {
+    if (s_jtag) {
+        free(s_tx);
+        free(s_rx);
+        s_tx = s_rx = NULL;
+        s_jtag = false;
+        return;
+    }
     if (s_dev) {
         spi_bus_remove_device(s_dev);
         s_dev = NULL;
@@ -185,9 +228,16 @@ static esp_err_t bus_open(void)
     return err;
 }
 
-/* Vollduplex: n Byte aus s_tx raus, n Byte nach s_rx rein, CS die ganze Zeit low. */
+/* Vollduplex: n Byte aus s_tx raus, n Byte nach s_rx rein, CS die ganze Zeit low.
+ * Ueber die Bruecke werden nur Lesebefehle mit Versatz gelesen; Schreibbefehle
+ * muessen genau n * 8 Takte haben, sonst verwirft das Flash sie. */
 static esp_err_t xfer(size_t n)
 {
+    if (s_jtag) {
+        uint8_t c = s_tx[0];
+        bool rd = c == EPCS_RDSR || c == EPCS_READ || c == EPCS_RES_ID || c == EPCS_JEDEC_ID;
+        return fpga_jtag_spi_xfer(s_tx, rd ? s_rx : NULL, n, s_spi_off);
+    }
     spi_transaction_t t = {
         .length = n * 8,
         .tx_buffer = s_tx,
@@ -290,11 +340,100 @@ static esp_err_t read_id(void)
  * FPGA aus dem EPCS neu. Laeuft das Leer-Design nicht an, bleibt der Bus zu --
  * gegen ein treibendes DCLK zu arbeiten, haette keinen Sinn. */
 
+/* Bitversatz DATA0 -> TDO der Bruecke finden. Die Kennung wird einmal mit 7 Byte
+ * Ueberhang gelesen (Versatz 0), dann wird im Bitstrom gesucht: 0x9F liefert JEDEC
+ * (Hersteller, Typ, Groesse), 0xAB die Silicon ID der Original-EPCS. Gefunden wird
+ * der kleinste Versatz 0..15, an dem die Werte plausibel sind. Ohne Treffer stehen
+ * die Rohbytes in s_calib_raw (Fehlermeldung, Log). */
+#define CAL_LEN 8
+static char s_calib_raw[64];
+
+static uint8_t bits_at(const uint8_t *r, int pos)
+{
+    uint8_t v = 0;
+    for (int i = 0; i < 8; i++) {
+        int k = pos + i;
+        v = (uint8_t)(v << 1 | ((r[k >> 3] >> (7 - (k & 7))) & 1));
+    }
+    return v;
+}
+
+static esp_err_t calibrate(void)
+{
+    uint8_t jd[CAL_LEN], ab[CAL_LEN];
+    memset(s_tx, 0, CAL_LEN);
+    s_tx[0] = EPCS_JEDEC_ID;
+    fpga_jtag_spi_xfer(s_tx, s_rx, CAL_LEN, 0);
+    memcpy(jd, s_rx, CAL_LEN);
+    memset(s_tx, 0, CAL_LEN);
+    s_tx[0] = EPCS_RES_ID;
+    fpga_jtag_spi_xfer(s_tx, s_rx, CAL_LEN, 0);
+    memcpy(ab, s_rx, CAL_LEN);
+
+    for (int off = 0; off <= 15; off++) {
+        uint8_t man = bits_at(jd, 8 + off), typ = bits_at(jd, 16 + off), cap = bits_at(jd, 24 + off);
+        if (man != 0x00 && man != 0xFF && cap >= 0x10 && cap <= 0x19) {
+            s_spi_off = off;
+            ESP_LOGI(TAG, "Bruecke: Versatz %d Takt(e), JEDEC %02X%02X%02X", off, man, typ, cap);
+            return ESP_OK;
+        }
+    }
+    for (int off = 0; off <= 15; off++) {
+        uint8_t v = bits_at(ab, 32 + off);
+        if (v == 0x10 || v == 0x12 || v == 0x14 || v == 0x16 || v == 0x18) {
+            s_spi_off = off;
+            ESP_LOGI(TAG, "Bruecke: Versatz %d Takt(e), Silicon ID 0x%02X", off, v);
+            return ESP_OK;
+        }
+    }
+    snprintf(s_calib_raw, sizeof(s_calib_raw),
+             "9F: %02X%02X%02X%02X%02X%02X%02X%02X AB: %02X%02X%02X%02X%02X%02X%02X%02X",
+             jd[0], jd[1], jd[2], jd[3], jd[4], jd[5], jd[6], jd[7],
+             ab[0], ab[1], ab[2], ab[3], ab[4], ab[5], ab[6], ab[7]);
+    ESP_LOGE(TAG, "Bruecke: keine plausible EPCS-Kennung, roh %s", s_calib_raw);
+    return ESP_ERR_NOT_FOUND;
+}
+
+/* JTAG-Piggyback: Bruecke laden, Puffer anlegen, Versatz bestimmen. */
+static esp_err_t session_open_jtag(void)
+{
+    esp_err_t err = fpga_jtag_bridge_load();
+    if (err != ESP_OK) {
+        set_last(err == ESP_ERR_INVALID_RESPONSE ? "No JTAG bridge for this FPGA (IDCODE)" :
+                 err == ESP_ERR_INVALID_STATE    ? "JTAG bridge did not start (CHECK_STATUS)" :
+                                                   "JTAG bridge could not be loaded");
+        fpga_restart();
+        return err;
+    }
+    s_tx = malloc(XFER_MAX);
+    s_rx = malloc(XFER_MAX);
+    s_jtag = true;
+    if (!s_tx || !s_rx) {
+        bus_close();
+        fpga_restart();
+        set_last("Out of memory");
+        return ESP_ERR_NO_MEM;
+    }
+    err = calibrate();
+    if (err != ESP_OK) {
+        bus_close();
+        fpga_restart();
+        /* Rohdaten mit in die Meldung: daran sieht man, ob TDO ueberhaupt etwas
+         * liefert (alles FF/00) oder nur der Versatz nicht passt. */
+        snprintf(s_last, sizeof(s_last), "EPCS does not answer through the JTAG bridge (%s)",
+                 s_calib_raw);
+    }
+    return err;
+}
+
 static esp_err_t session_open(void)
 {
     /* Erst die Kontrolle sauber zurueckgeben -- das laufende Design verschwindet
      * gleich, mit ihm die Totmannschaltung der Gegenseite. */
     fa_connect_release();
+    if (board_type() == BOARD_JTAG) {
+        return session_open_jtag();
+    }
     esp_err_t err = fpga_jtag_load_release();
     if (err != ESP_OK) {
         set_last(err == ESP_ERR_INVALID_RESPONSE ? "No FPGA on JTAG (wrong or no IDCODE)" :
@@ -316,8 +455,7 @@ static esp_err_t session_open(void)
 static esp_err_t session_close(void)
 {
     bus_close();
-    nconfig_hold();
-    nconfig_release();
+    fpga_restart();
     return wait_conf_done();
 }
 
@@ -341,15 +479,14 @@ void fpga_prog_info(fpga_info_t *out)
 
 esp_err_t fpga_prog_reconfig(void)
 {
-    if (board_type() != BOARD_V7) {
-        return ESP_ERR_NOT_SUPPORTED;   /* nur Board v7 erreicht das EPCS */
+    if (!fpga_prog_available()) {
+        return ESP_ERR_NOT_SUPPORTED;   /* v7, oder JTAG-Piggyback mit Bruecke */
     }
     if (s_busy) {
         return ESP_ERR_INVALID_STATE;
     }
     fa_connect_release();
-    nconfig_hold();
-    nconfig_release();
+    fpga_restart();
     esp_err_t err = wait_conf_done();
     set_last(err == ESP_OK ? "Reconfigured, CONF_DONE high"
                            : "Reconfigured, but CONF_DONE stays low - no valid image?");
@@ -358,8 +495,8 @@ esp_err_t fpga_prog_reconfig(void)
 
 esp_err_t fpga_prog_probe(void)
 {
-    if (board_type() != BOARD_V7) {
-        return ESP_ERR_NOT_SUPPORTED;   /* nur Board v7 erreicht das EPCS */
+    if (!fpga_prog_available()) {
+        return ESP_ERR_NOT_SUPPORTED;   /* v7, oder JTAG-Piggyback mit Bruecke */
     }
     if (s_busy) {
         return ESP_ERR_INVALID_STATE;
@@ -380,8 +517,8 @@ esp_err_t fpga_prog_probe(void)
 
 esp_err_t fpga_prog_read(uint32_t addr, uint32_t len, fpga_sink_t sink, void *ctx)
 {
-    if (board_type() != BOARD_V7) {
-        return ESP_ERR_NOT_SUPPORTED;   /* nur Board v7 erreicht das EPCS */
+    if (!fpga_prog_available()) {
+        return ESP_ERR_NOT_SUPPORTED;   /* v7, oder JTAG-Piggyback mit Bruecke */
     }
     if (s_busy) {
         return ESP_ERR_INVALID_STATE;
@@ -474,6 +611,13 @@ static uint8_t bb_xfer(uint8_t out)
 
 esp_err_t fpga_prog_diag(char *out, size_t len)
 {
+    if (board_type() == BOARD_JTAG) {
+        if (s_busy) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        fa_connect_release();
+        return fpga_jtag_bridge_diag(out, len);   /* Piggyback: Rohdaten der Bruecke */
+    }
     if (board_type() != BOARD_V7) {
         return ESP_ERR_NOT_SUPPORTED;   /* nur Board v7 erreicht das EPCS */
     }
@@ -585,8 +729,8 @@ static esp_err_t flush_page(void)
 
 esp_err_t fpga_prog_write_begin(uint32_t addr, uint32_t size, bool rev)
 {
-    if (board_type() != BOARD_V7) {
-        return ESP_ERR_NOT_SUPPORTED;   /* nur Board v7 erreicht das EPCS */
+    if (!fpga_prog_available()) {
+        return ESP_ERR_NOT_SUPPORTED;   /* v7, oder JTAG-Piggyback mit Bruecke */
     }
     if (s_busy) {
         return ESP_ERR_INVALID_STATE;

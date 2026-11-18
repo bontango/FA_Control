@@ -193,6 +193,8 @@ static esp_err_t config_get_handler(httpd_req_t *req)
      *   fsram Design per JTAG in den SRAM laden (.fjz)
      *   fepcs Konfigurationsflash dauerhaft schreiben (.jic/.rbf), bisher nur v7 */
     const char *link = board_type() == BOARD_JTAG ? fpga_vjtag_link_kind() : "uart";
+    /* "fepcs": v7 immer, Piggyback mit Bruecke fuer die IDCODE (Stufe B, 1.33) */
+    bool fepcs = board_type() != BOARD_SOCKET && fpga_prog_available();
 
     char buf[768];
     snprintf(buf, sizeof(buf),
@@ -210,7 +212,7 @@ static esp_err_t config_get_handler(httpd_req_t *req)
              ci->hw, ci->fw_ver, ci->api_ver, ci->game,
              names_ready() ? 1 : 0, names_active(), gameid, rom_boot_ready() ? 1 : 0,
              has_fpga(),
-             board_name(), link, board_has_jtag() ? 1 : 0, board_type() == BOARD_V7 ? 1 : 0);
+             board_name(), link, board_has_jtag() ? 1 : 0, fepcs ? 1 : 0);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
 }
@@ -1044,7 +1046,7 @@ static esp_err_t fpgainfo_get_handler(httpd_req_t *req)
     }
     fpga_info_t fi;
     fpga_prog_info(&fi);
-    char buf[256];
+    char buf[320];
     snprintf(buf, sizeof(buf),
              "{\"conf_done\":%d,\"busy\":%d,\"epcs_ab\":%d,\"epcs_jedec\":%lu,"
              "\"size\":%lu,\"max\":%d,\"last\":\"%s\"}",
@@ -1481,7 +1483,9 @@ esp_err_t web_server_start(void)
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {
         httpd_register_uri_handler(server, &uris[i]);
     }
-    if (board_type() == BOARD_V7) {
+    /* EPCS-Endpunkte auch auf dem Piggyback (Bruecke, seit 1.33); ohne Bruecke fuer
+     * die IDCODE weisen die Handler mit "not supported" ab. */
+    if (board_has_jtag()) {
         for (size_t i = 0; i < sizeof(uris_v7) / sizeof(uris_v7[0]); i++) {
             httpd_register_uri_handler(server, &uris_v7[i]);
         }

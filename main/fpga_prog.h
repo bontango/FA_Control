@@ -6,8 +6,15 @@
 #include "esp_err.h"
 
 /*
- * FPGA-Programmierung auf dem EP4CE6 dev board v7. Seit v1.31 immer gebaut; auf
- * anderen Boards (board_type() != BOARD_V7) melden die Einstiege ESP_ERR_NOT_SUPPORTED.
+ * FPGA-Programmierung auf dem EP4CE6 dev board v7 und (seit 1.33, Stufe B) auf dem
+ * JTAG-Piggyback ueber die JTAG-SPI-Bruecke fpga/jtag_spi_bridge. Auf dem Sockel und
+ * auf einem Piggyback ohne Bruecke fuer die IDCODE melden die Einstiege
+ * ESP_ERR_NOT_SUPPORTED (fpga_prog_available()).
+ *
+ * Piggyback: statt as_release + SPI-Master laedt die Sitzung die Bruecke, jeder
+ * SPI-Transfer ist ein DR-Scan unter USER1, der Bitversatz DATA0 -> TDO wird je
+ * Sitzung an der EPCS-Kennung bestimmt. Neustart per JTAG-Befehl PULSE_NCONFIG,
+ * CONF_DONE aus CHECK_STATUS (keine Leitungen).
  *
  * WEG. Der ESP beschreibt das EPCS als gewoehnlicher SPI-Master (Active Serial)
  * und startet das FPGA danach per nCONFIG-Puls aus dem neuen Image; CONF_DONE
@@ -50,7 +57,7 @@
 /* Obergrenze fuer ein Image: Beginn des ROM-Bereichs der FA-Designs. */
 #define FPGA_IMAGE_MAX      0x80000
 #define FPGA_CONF_DONE_MS   2000
-#define FPGA_MSG_LEN        96
+#define FPGA_MSG_LEN        128   /* Platz fuer die Rohdaten der Bruecke */
 
 typedef struct {
     bool conf_done;          /* live gelesen */
@@ -62,6 +69,9 @@ typedef struct {
 } fpga_info_t;
 
 void fpga_prog_init(void);
+/* Kann dieses Geraet das EPCS schreiben? v7 immer, der JTAG-Piggyback nur mit einer
+ * Bruecke fuer die IDCODE des FPGA. Steuert "fepcs" in /api/config. */
+bool fpga_prog_available(void);
 void fpga_prog_info(fpga_info_t *out);
 
 /* nCONFIG halten, Kennung lesen, loslassen, auf CONF_DONE warten.

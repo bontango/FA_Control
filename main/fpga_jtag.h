@@ -33,6 +33,28 @@
 #define FPGA_IDCODE_EP4CE6   0x020F10DD
 #define FPGA_IDCODE_EP4CE22  0x020F30DD
 
+/* ---- JTAG-SPI-Bruecke (JTAG-Piggyback, Stufe B, fpga/jtag_spi_bridge) -------
+ * Das EPCS haengt an den AS-Pins, der Piggyback erreicht nur JTAG. fpga_prog laedt
+ * dafuer die Bruecke in den SRAM; danach ist jeder DR-Scan unter USER1 eine
+ * SPI-Transaktion. Am Ende startet PULSE_NCONFIG das FPGA aus dem EPCS neu. */
+
+/* Gibt es fuer die IDCODE dieses FPGA eine Bruecke? (fragt die IDCODE einmal ab) */
+bool fpga_jtag_bridge_known(void);
+/* Bruecke passend zur IDCODE laden. ESP_ERR_INVALID_RESPONSE = unbekannte IDCODE,
+ * ESP_ERR_INVALID_STATE = CHECK_STATUS meldet kein CONF_DONE. */
+esp_err_t fpga_jtag_bridge_load(void);
+/* n Byte SPI ueber die Bruecke, MSB zuerst. rx darf NULL sein (Schreibbefehl);
+ * off = Versatz DATA0 -> TDO in Takten (nur mit rx). */
+esp_err_t fpga_jtag_spi_xfer(const uint8_t *tx, uint8_t *rx, size_t n, int off);
+/* Diagnose der Bruecke (GET /api/fpgadiag auf dem Piggyback): laedt sie, schiebt unter
+ * USER0 ein Muster (Echo erwartet) und unter USER1 die JEDEC-Abfrage, gibt die Rohdaten
+ * als JSON aus und startet das FPGA danach neu. */
+esp_err_t fpga_jtag_bridge_diag(char *out, size_t len);
+/* FPGA aus dem Konfigurationsflash neu starten (JTAG-Befehl PULSE_NCONFIG). */
+esp_err_t fpga_jtag_pulse_nconfig(void);
+/* CONF_DONE aus CHECK_STATUS: 1/0, -1 = unbekannt (kein JTAG, IDCODE unbekannt). */
+int fpga_jtag_conf_done(void);
+
 /* IDCODE lesen. ESP_ERR_NOT_FOUND, wenn nur 0x00000000/0xFFFFFFFF kommt
  * (TDO haengt, keine Kette). */
 esp_err_t fpga_jtag_idcode(uint32_t *id);

@@ -1,0 +1,5 @@
+# Quartus-Ausgaben; die Firmware braucht nur main/blob/jtag_spi_bridge.jtag.z
+db/
+incremental_db/
+output_files/
+*.qws

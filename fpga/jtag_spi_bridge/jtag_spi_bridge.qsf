@@ -1,0 +1,19 @@
+# jtag_spi_bridge, Revision fuer EP4CE6E22C8 (GottFA80 HW 1.1 / Board v3, v4.x).
+# Derselbe Die steckt im EP4CE10 und im 10CL006/010 (IDCODE 0x020F10DD); ob dieses
+# Bitfile dort auch laeuft, ist Teil der Probe (Stufe B).
+set_global_assignment -name FAMILY "Cyclone IV E"
+set_global_assignment -name DEVICE EP4CE6E22C8
+set_global_assignment -name TOP_LEVEL_ENTITY jtag_spi_bridge
+set_global_assignment -name VHDL_FILE jtag_spi_bridge.vhd
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+
+set_global_assignment -name STRATIX_DEVICE_IO_STANDARD "3.3-V LVTTL"
+# Alle Benutzer-Pins hochohmig: die Bruecke laeuft auf fremden Platinen.
+set_global_assignment -name RESERVE_ALL_UNUSED_PINS "AS INPUT TRI-STATED WITH WEAK PULL-UP"
+
+# Die AS-Pins bleiben Programmierpins, das Atom cycloneive_asmiblock spricht sie an.
+set_global_assignment -name ON_CHIP_BITSTREAM_DECOMPRESSION OFF
+set_global_assignment -name GENERATE_RBF_FILE OFF
+
+set_global_assignment -name LAST_QUARTUS_VERSION "22.1std.2 Lite Edition"
+set_global_assignment -name SDC_FILE jtag_spi_bridge.sdc

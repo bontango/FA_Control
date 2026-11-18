@@ -36,3 +36,6 @@ target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/web/logo.pn
 # entpackt beim Schieben (fpga_jtag.c waehlt per IDCODE).
 target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/blob/as_release.jtag.z" BINARY)
 target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/blob/as_release_e22.jtag.z" BINARY)
+# JTAG-Piggyback (Stufe B): JTAG-SPI-Bruecke fuer den EP4CE6-Die, fpga/jtag_spi_bridge,
+# erzeugt mit make_jtag_blob.py --sof ... --raw (~5 kB)
+target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/blob/jtag_spi_bridge.jtag.z" BINARY)

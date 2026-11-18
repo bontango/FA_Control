@@ -20,6 +20,8 @@ extern const uint8_t release_e6_start[]  asm("_binary_as_release_jtag_z_start");
 extern const uint8_t release_e6_end[]    asm("_binary_as_release_jtag_z_end");
 extern const uint8_t release_e22_start[] asm("_binary_as_release_e22_jtag_z_start");
 extern const uint8_t release_e22_end[]   asm("_binary_as_release_e22_jtag_z_end");
+extern const uint8_t bridge_e6_start[]   asm("_binary_jtag_spi_bridge_jtag_z_start");
+extern const uint8_t bridge_e6_end[]     asm("_binary_jtag_spi_bridge_jtag_z_end");
 
 /* Ein Leer-Design je Device. cs_len/cs_conf_done: Laenge des CHECK_STATUS-Registers
  * und Lage von CONF_DONE darin, je Die verschieden - make_jtag_blob.py gibt beides
@@ -38,13 +40,37 @@ static const release_t RELEASES[] = {
     { FPGA_IDCODE_EP4CE22, "EP4CE22", release_e22_start, release_e22_end, 732, 286 },
 };
 
+/* JTAG-SPI-Bruecke fuer den JTAG-Piggyback (Stufe B, fpga/jtag_spi_bridge), je Die eine.
+ * Uebersetzt fuer EP4CE6E22C8; derselbe Die steckt in EP4CE10 und 10CL006/010 (gleiche
+ * IDCODE). Die Bruecke hat keine Benutzer-Pins, sie sollte daher in allen Gehaeusen
+ * laufen -- bestaetigt bisher EP4CE6E22C8 (v4.x, 18.11.2026). */
+static const release_t BRIDGES[] = {
+    { FPGA_IDCODE_EP4CE6,  "EP4CE6",  bridge_e6_start,   bridge_e6_end,   603, 226 },
+};
+
+static const release_t *find_rel(const release_t *t, size_t n, uint32_t id)
+{
+    for (size_t k = 0; k < n; k++) {
+        if (t[k].idcode == id) {
+            return &t[k];
+        }
+    }
+    return NULL;
+}
+#define FIND(tab, id) find_rel(tab, sizeof(tab) / sizeof(tab[0]), id)
+
 /* Cyclone IV: Befehlsregister 10 Bit */
 #define IR_LEN          10
+/* Neustart aus dem Konfigurationsflash, wie ein nCONFIG-Puls (Cyclone-IV-Handbuch
+ * Kap. 8, JTAG-Befehle; in der BSDL 00 0000 0001). Am v4.x bestaetigt (18.11.2026). */
+#define IR_PULSE_NCONFIG 0x001
 #define IR_PROGRAM      0x002
 #define IR_STARTUP      0x003
 #define IR_CHECK_STATUS 0x004
 #define IR_IDCODE       0x006
 #define IR_BYPASS       0x3FF
+#define IR_USER0        0x00C   /* Virtual-JTAG-Hub: Daten */
+#define IR_USER1        0x00E   /* Hub: Adresse/VIR; Bruecke: SPI */
 
 
 /* ---- Pins: direkte Registerzugriffe, gpio_set_level waere zu langsam ------ */
@@ -187,6 +213,8 @@ static int dr_last(int tdi)
     return o;
 }
 
+static uint32_t s_idcode_seen;          /* zuletzt gelesene IDCODE, fuer Bruecke/Anzeige */
+
 static uint32_t read_idcode(void)
 {
     shift_ir(IR_IDCODE);
@@ -196,6 +224,9 @@ static uint32_t read_idcode(void)
     for (int i = 0; i < 32; i++) {
         int o = (i == 31) ? dr_last(1) : clk(0, 1);
         id |= (uint32_t)o << i;
+    }
+    if (id != 0 && id != 0xFFFFFFFF) {
+        s_idcode_seen = id;
     }
     return id;
 }
@@ -358,24 +389,18 @@ static esp_err_t sram_config(fpga_jtag_src_fn src, void *ctx, int cs_len, int cs
     return conf_done ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
-esp_err_t fpga_jtag_load_release(void)
+/* Passendes Design aus tab per IDCODE waehlen und in den SRAM laden. */
+static esp_err_t load_from(const release_t *tab, size_t n, const char *what)
 {
     if (!s_ok) {
         return ESP_ERR_NOT_SUPPORTED;
     }
     tap_open();
     uint32_t id = read_idcode();
-    const release_t *rel = NULL;
-    for (size_t k = 0; k < sizeof(RELEASES) / sizeof(RELEASES[0]); k++) {
-        if (RELEASES[k].idcode == id) {
-            rel = &RELEASES[k];
-            break;
-        }
-    }
+    const release_t *rel = find_rel(tab, n, id);
     if (!rel) {
         tap_close();
-        ESP_LOGE(TAG, "IDCODE 0x%08lX unbekannt (EP4CE6 0x%08X, EP4CE22 0x%08X)",
-                 (unsigned long)id, FPGA_IDCODE_EP4CE6, FPGA_IDCODE_EP4CE22);
+        ESP_LOGE(TAG, "%s: IDCODE 0x%08lX unbekannt", what, (unsigned long)id);
         return ESP_ERR_INVALID_RESPONSE;
     }
     ESP_LOGI(TAG, "IDCODE 0x%08lX = %s", (unsigned long)id, rel->name);
@@ -386,9 +411,159 @@ esp_err_t fpga_jtag_load_release(void)
     esp_err_t err = sram_config(src_mem, &m, rel->cs_len, rel->cs_conf_done, &conf_done, NULL);
     tap_close();
 
-    ESP_LOGI(TAG, "Leer-Design geladen in %ld ms, CHECK_STATUS CONF_DONE=%d",
-             (long)(esp_log_timestamp() - t0), conf_done);
+    ESP_LOGI(TAG, "%s geladen in %ld ms, CHECK_STATUS CONF_DONE=%d",
+             what, (long)(esp_log_timestamp() - t0), conf_done);
     return err;
+}
+
+esp_err_t fpga_jtag_load_release(void)
+{
+    return load_from(RELEASES, sizeof(RELEASES) / sizeof(RELEASES[0]), "Leer-Design");
+}
+
+/* ---- JTAG-SPI-Bruecke (JTAG-Piggyback, Stufe B) ------------------------------ */
+
+bool fpga_jtag_bridge_known(void)
+{
+    if (!s_ok) {
+        return false;
+    }
+    if (s_idcode_seen == 0) {
+        uint32_t id;
+        fpga_jtag_idcode(&id);          /* einmal fragen, merkt sich read_idcode() */
+    }
+    return FIND(BRIDGES, s_idcode_seen) != NULL;
+}
+
+esp_err_t fpga_jtag_bridge_load(void)
+{
+    fpga_vjtag_link_invalidate();
+    return load_from(BRIDGES, sizeof(BRIDGES) / sizeof(BRIDGES[0]), "JTAG-SPI-Bruecke");
+}
+
+/* Ein SPI-Transfer = ein DR-Scan unter USER1: n Byte aus tx (MSB zuerst), dabei
+ * nCSO low. rx (darf NULL sein) bekommt die gleichzeitig gelesenen Bytes; DATA0
+ * erscheint an TDO um off Takte versetzt, dafuer laeuft der Scan off Takte laenger.
+ * Nur bei Lesebefehlen: ein Schreibbefehl mit Bitzahl nicht durch 8 teilbar wird
+ * vom Flash verworfen. */
+/* Ein DR-Scan unter Befehl ir, bei geoeffnetem TAP. */
+static void spi_scan(uint32_t ir, const uint8_t *tx, uint8_t *rx, size_t n, int off)
+{
+    shift_ir(ir);
+    runtest_from_pause(1);
+    dr_enter();
+    size_t total = n * 8 + (size_t)off;
+    for (size_t k = 0; k < total; k++) {
+        int bit = k < n * 8 ? (tx[k >> 3] >> (7 - (k & 7))) & 1 : 0;
+        int o = (k == total - 1) ? dr_last(bit) : clk(0, bit);
+        if (rx && k >= (size_t)off) {
+            size_t j = k - off;
+            rx[j >> 3] |= (uint8_t)(o << (7 - (j & 7)));
+        }
+    }
+}
+
+esp_err_t fpga_jtag_spi_xfer(const uint8_t *tx, uint8_t *rx, size_t n, int off)
+{
+    if (!s_ok) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (n == 0) {
+        return ESP_OK;
+    }
+    if (rx) {
+        memset(rx, 0, n);
+    } else {
+        off = 0;
+    }
+    tap_open();
+    spi_scan(IR_USER1, tx, rx, n, off);
+    tap_close();
+    return ESP_OK;
+}
+
+static int hexs(char *out, size_t len, const uint8_t *b, size_t n)
+{
+    int p = 0;
+    for (size_t i = 0; i < n && p < (int)len - 2; i++) {
+        p += snprintf(out + p, len - p, "%02X", b[i]);
+    }
+    return p;
+}
+
+esp_err_t fpga_jtag_bridge_diag(char *out, size_t len)
+{
+    if (!s_ok) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    esp_err_t err = fpga_jtag_bridge_load();
+    int p = snprintf(out, len, "{\"bridge\":\"%s\",\"idcode\":\"0x%08lX\"",
+                     esp_err_to_name(err), (unsigned long)s_idcode_seen);
+    if (err == ESP_OK) {
+        /* USER0: Echo-Muster (die Bruecke gibt TDI einen Takt spaeter zurueck);
+         * USER1: JEDEC-Kennung 0x9F (DATA0 an TDO). Beides roh, Versatz 0. */
+        static const uint8_t pat[8]  = { 0xA5, 0x5A, 0x0F, 0xF0, 0x00, 0xFF, 0x33, 0xCC };
+        static const uint8_t jed[8]  = { 0x9F, 0, 0, 0, 0, 0, 0, 0 };
+        uint8_t r0[8], r1[8];
+        memset(r0, 0, sizeof(r0));
+        memset(r1, 0, sizeof(r1));
+        tap_open();
+        spi_scan(IR_USER0, pat, r0, sizeof(r0), 0);
+        spi_scan(IR_USER1, jed, r1, sizeof(r1), 0);
+        tap_close();
+        p += snprintf(out + p, len - p, ",\"user0_sent\":\"");
+        p += hexs(out + p, len - p, pat, sizeof(pat));
+        p += snprintf(out + p, len - p, "\",\"user0_echo\":\"");
+        p += hexs(out + p, len - p, r0, sizeof(r0));
+        p += snprintf(out + p, len - p, "\",\"user1_9F\":\"");
+        p += hexs(out + p, len - p, r1, sizeof(r1));
+        p += snprintf(out + p, len - p, "\"");
+        ESP_LOGI(TAG, "Bruecke Diagnose: USER0 %02X%02X%02X%02X.. USER1 %02X%02X%02X%02X..",
+                 r0[0], r0[1], r0[2], r0[3], r1[0], r1[1], r1[2], r1[3]);
+    }
+    fpga_jtag_pulse_nconfig();
+    snprintf(out + p, len - p, "}");
+    return ESP_OK;
+}
+
+esp_err_t fpga_jtag_pulse_nconfig(void)
+{
+    if (!s_ok) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    tap_open();
+    shift_ir(IR_PULSE_NCONFIG);
+    runtest_from_pause(100);
+    tap_close();
+    fpga_vjtag_link_invalidate();
+    ESP_LOGI(TAG, "PULSE_NCONFIG");
+    return ESP_OK;
+}
+
+int fpga_jtag_conf_done(void)
+{
+    if (!s_ok) {
+        return -1;
+    }
+    tap_open();
+    uint32_t id = read_idcode();
+    const release_t *rel = FIND(RELEASES, id);
+    int cd = -1;
+    if (rel) {
+        shift_ir(IR_CHECK_STATUS);
+        runtest_from_pause(50);
+        dr_enter();
+        for (int i = 0; i < rel->cs_len; i++) {
+            int o = (i == rel->cs_len - 1) ? dr_last(0) : clk(0, 0);
+            if (i == rel->cs_conf_done) {
+                cd = o;
+            }
+        }
+        shift_ir(IR_BYPASS);
+        runtest_from_pause(1);
+    }
+    tap_close();
+    return cd;
 }
 
 esp_err_t fpga_jtag_load_sram(fpga_jtag_src_fn src, void *ctx, int cs_len, int cs_conf_done,
@@ -419,8 +594,6 @@ esp_err_t fpga_jtag_load_sram(fpga_jtag_src_fn src, void *ctx, int cs_len, int c
 
 /* ---- Virtual JTAG (SLD-Hub) ----------------------------------------------- */
 
-#define IR_USER0  0x00C
-#define IR_USER1  0x00E
 #define SLD_MFG   0x06E
 
 /* Run-Test/Idle -> n Bit DR (n <= 32, LSB zuerst) -> Run-Test/Idle. Liefert die

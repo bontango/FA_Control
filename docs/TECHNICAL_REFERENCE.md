@@ -792,7 +792,7 @@ What the page offers comes from `GET /api/config`, not from guessing:
 | `board` | `socket` / `v7` / `jtag` | detected board (§ 14.1) |
 | `link` | `uart`, or on the JTAG piggyback `full` / `monitor` / `control` / `service` / `none` | how FA control reaches the game. On the piggyback the kind comes from the link ID ("FA" + L/M/C/S + board ID, `fpga_vjtag_link_kind()`, cached by `link_attach()`, so no extra hub scan per request) |
 | `fsram` | 0/1 | a design can be loaded into the FPGA SRAM over JTAG (v7, JTAG piggyback) |
-| `fepcs` | 0/1 | the configuration flash can be written (v7; the JTAG piggyback after the bridge, EVALUIERUNG § 14.4) |
+| `fepcs` | 0/1 | the configuration flash can be written: v7 always, the JTAG piggyback since v1.33 when a bridge exists for its IDCODE (§ 15.2, `fpga_prog_available()`) |
 
 - MONITOR MODE is enabled for `link` ∈ {uart, full, monitor}, CONTROL MODE for
   {uart, full, control, service}. A disabled button carries the reason as its tooltip.
@@ -1301,3 +1301,56 @@ Measured on board v4.x (17.11.2026): `/api/fpgasram` loads the 368 KB stream (94
 in 1.76–1.78 s; switching monitor ↔ control version 10 times without error.
 `/api/vjtag`: 2 × 100 000 scans without error, 18.6 µs per 32-bit scan
 = 215 kB/s of payload, one complete session (open, select VIR, 32 bits, close) 0.1 ms.
+
+### 15.2 Writing the EPCS through a JTAG-SPI bridge (stage B, since v1.33)
+
+On the piggyback the EPCS sits on the FPGA's AS pins, which the ESP cannot reach. Every EPCS
+session therefore first loads a tiny bridge design into the SRAM (instead of `as_release`)
+and then speaks SPI *through the TAP*. Everything above the transport stays as on v7
+(`fpga_prog.c`): ID, sectors, 512 kB limit, rom area, bit order, SHA-256 verify, the UI
+(§ 8.2), `.jic` in the browser.
+
+**The bridge** `fpga/jtag_spi_bridge/` (one VHDL file, 2 LEs, 1 register, no user pins):
+
+- `cycloneive_jtag` atom without a hub. Its port `tdoutap` must stay unconnected (fitter
+  error 176304), and the atoms are declared as components in the VHDL — a
+  `library cycloneive` clause is unknown to synthesis.
+- `cycloneive_asmiblock` atom drives the dedicated AS pins (`oe = '0'`, active low, as in
+  Intel's `altserial_flash_loader.vhd`). No pin assignments, so the same bitfile should run
+  in every package of the die.
+- While a user instruction is in Shift-DR (`shiftuser`): nCSO = 0, DCLK = TCK, ASDO = TDI.
+  The enable is taken over on the falling TCK edge, otherwise entering Shift-DR with TCK high
+  would produce a spurious DCLK edge. **Every DR scan under USER1 is one SPI transaction.**
+- TDO: under USER1 (`usr1user` = 1) DATA0; under USER0 TDI one clock later (echo, for the
+  diagnosis). `usr1user` must not gate nCS/DCLK — with `shiftuser and usr1user` the EPCS never
+  answered.
+- Blob: `make_jtag_blob.py --sof ../jtag_spi_bridge/output_files/jtag_spi_bridge.sof
+  --out ../../main/blob/jtag_spi_bridge.jtag.z --raw` (5.2 kB, CHECK_STATUS 603/226).
+  Table `BRIDGES[]` in `fpga_jtag.c`, chosen by IDCODE. Built for EP4CE6E22C8; EP4CE10 and
+  10CL006/010 have the same IDCODE (0x020F10DD) and use the same blob.
+
+**Firmware** (`fpga_jtag.c`, `fpga_prog.c`):
+
+- `fpga_jtag_spi_xfer()`: IR USER1, one DR scan, bytes MSB first. Read commands
+  (RDSR, READ, 0xAB, 0x9F) get `off` extra clocks for the DATA0 → TDO delay. Write commands
+  never do: a flash drops a command whose clock count is not a multiple of 8.
+- `calibrate()` per session: 0x9F and 0xAB once with 7 bytes of overhang, then a bit search
+  for offset 0…15. Without a plausible ID the raw bytes go into the error message.
+- Restart: JTAG instruction **PULSE_NCONFIG = 0x001**. CONF_DONE: **CHECK_STATUS** (bit 226
+  of 603), polled every 100 ms after a 500 ms pause — no JTAG instruction in the middle of
+  the AS configuration.
+- `GET /api/fpgadiag` on the piggyback: loads the bridge, shifts a pattern under USER0 and
+  0x9F under USER1, returns both raw (`user0_echo`, `user1_9F`), restarts the FPGA.
+
+**Measured on board v4.x (EP4CE6E22C8, EPCS ISSI IS25LP016, 18.11.2026):**
+
+| Check | Result |
+|---|---|
+| `/api/fpgadiag` | `user0_echo` = pattern shifted by exactly one bit; `user1_9F` = `FF 9D6015 9D6015 …` |
+| DATA0 → TDO offset | **0** clocks |
+| IDENTIFY EPCS | EPCS16 · JEDEC 0x9D6015 · 2048 KB |
+| RECONFIGURE (PULSE_NCONFIG) | game restarts |
+| READ BACK 512 kB | bit-identical (reversed) to the image in `GottFA80_v110_v305.jic` |
+| INSTALL `GottFA80_v110_v305_roms.jic` | image 359 KB + roms 592 KB written and verified, CONF_DONE high from CHECK_STATUS in user mode |
+
+Still open: the same bitfile on 10CL006 and on other packages of the die.

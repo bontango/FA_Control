@@ -27,6 +27,10 @@ Beliebiges Design fuer POST /api/fpgasram (JTAG-Piggyback, 17.11.2026):
 Die .fjz hat einen 8-Byte-Kopf: b"FJZ1", CHECK_STATUS-Laenge (u16 LE), CONF_DONE-Bit
 (u16 LE), danach der zlib-Strom. So bringt die Datei die je Die/Gehaeuse verschiedenen
 CHECK_STATUS-Werte selbst mit.
+
+Blob ohne FJZ-Kopf aus einem anderen Projekt (Bruecke fpga/jtag_spi_bridge, Stufe B):
+    python make_jtag_blob.py --sof <datei.sof> --out ../../main/blob/<name>.jtag.z --raw
+Die CHECK_STATUS-Werte gehoeren dann in die Tabelle BRIDGES[] in fpga_jtag.c.
 """
 import os
 import re
@@ -46,7 +50,7 @@ if '--sof' in sys.argv:
     if '--cpf' in a:
         CPF = a[a.index('--cpf') + 1]
     REV = os.path.splitext(os.path.basename(SOF))[0]
-    FJZ = True
+    FJZ = '--raw' not in a
 else:
     REV = sys.argv[1] if len(sys.argv) > 1 else 'as_release'
     SOF = os.path.join(HERE, 'output_files', REV + '.sof')
