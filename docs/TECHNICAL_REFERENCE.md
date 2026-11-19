@@ -1302,7 +1302,7 @@ in 1.76–1.78 s; switching monitor ↔ control version 10 times without error.
 `/api/vjtag`: 2 × 100 000 scans without error, 18.6 µs per 32-bit scan
 = 215 kB/s of payload, one complete session (open, select VIR, 32 bits, close) 0.1 ms.
 
-### 15.1a FA control "lite": LISY in the ESP, register bank in the FPGA (experimental, 19.11.2026)
+### 15.1a FA control "lite": LISY in the ESP, register bank in the FPGA (since v1.34, experimental)
 
 With `fa_vjtag_link` the FPGA still carries the whole LISY slave `fa_control` (UART, parser,
 answer mux) plus a second UART pair and two FIFOs in the link. That does not fit into an
