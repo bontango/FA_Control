@@ -908,6 +908,7 @@ const char *fpga_vjtag_kind_str(uint32_t id)
     case 'M': return "monitor";
     case 'C': return "control";
     case 'S': return "service";
+    case 'R': return "lite";
     default:  return "full";
     }
 }
@@ -968,6 +969,34 @@ int fpga_vjtag_link_io(const uint8_t *out, int n_out, uint8_t *in, int max_in,
     }
     tap_close();
     return got;
+}
+
+/* ---- Registerbank (FA-Control "lite", Kennung "FAR") ---------------------- */
+
+bool fpga_vjtag_link_is_regs(void)
+{
+    return link_attach() && FPGA_VJTAG_IS_REGS(s_link_id);
+}
+
+int fpga_vjtag_reg_ops(const uint32_t *ops, int n, uint16_t *res)
+{
+    if (!link_attach() || !FPGA_VJTAG_IS_REGS(s_link_id)) {
+        return -1;
+    }
+    tap_open();
+    vir_select(&s_link, FPGA_VJTAG_VIR_DATA);
+    for (int i = 0; i < n; i++) {
+        uint32_t r = dr_shift(ops[i] & 0xFFFF, 16);
+        if (res) {
+            res[i] = (uint16_t)r;
+        }
+        int gap = (int)(ops[i] >> 16);
+        if (gap) {
+            runtest(gap);
+        }
+    }
+    tap_close();
+    return n;
 }
 
 esp_err_t fpga_vjtag_link_ctrl(bool on)

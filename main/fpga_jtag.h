@@ -131,8 +131,13 @@ esp_err_t fpga_vjtag_probe(fpga_vjtag_hub_t *hub);
 #define FPGA_VJTAG_ID_LINK  0x46414Cu   /* "FAL" */
 #define FPGA_VJTAG_IS_LINK(id) (((id) >> 16) == 0x4641u && \
                                 (((id) >> 8 & 0xFF) == 'L' || ((id) >> 8 & 0xFF) == 'M' || \
-                                 ((id) >> 8 & 0xFF) == 'C' || ((id) >> 8 & 0xFF) == 'S'))
+                                 ((id) >> 8 & 0xFF) == 'C' || ((id) >> 8 & 0xFF) == 'S' || \
+                                 ((id) >> 8 & 0xFF) == 'R'))
 #define FPGA_VJTAG_LINK_KIND(id) ((char)((id) >> 8 & 0xFF))
+/* Art R = FA-Control "lite" (GottFA80 lib_common/fa_jtag_regs.vhd, 19.11.2026): kein
+ * LISY im FPGA, sondern eine Registerbank; LISY spricht lisy_emul.c hier im ESP.
+ * Steuerbit (VIR 3) wie beim Link, VIR 1 ist das Registerinterface (s. u.). */
+#define FPGA_VJTAG_IS_REGS(id) (FPGA_VJTAG_IS_LINK(id) && FPGA_VJTAG_LINK_KIND(id) == 'R')
 
 /* fa_vjtag_link (GottFA80 lib_common/fa_vjtag_link.vhd): VIR 1 = Datenkanal zu
  * fa_control (16 Bit je Scan, ein Byte je Richtung), VIR 3 = Steuerbit CTRL_REQ
@@ -187,8 +192,26 @@ int fpga_vjtag_link_io(const uint8_t *out, int n_out, uint8_t *in, int max_in,
 /* Steuerbit (ersetzt CTRL_REQ/GPIO10). Totmann im FPGA: 2 s ohne Datenscan -> aus. */
 esp_err_t fpga_vjtag_link_ctrl(bool on);
 
+/* ---- Registerbank (Art R, FA-Control "lite") ---------------------------------
+ * VIR 1, 16 Bit je Scan: TDI [7:0] Schreibdaten, [14:8] Adresse, [15] schreiben;
+ * TDO [7:0] Lesedaten der Adresse aus dem VORIGEN Scan, [8] Steuerbit, [9] lebt.
+ * Ein Op = 16-Bit-Scan + Takte in Run-Test/Idle danach (Bit 31..16), z.B. damit ein
+ * Ladepuls im FPGA auslaufen kann, bevor der naechste Scan schreibt. */
+#define FPGA_REG_RD(a)            ((uint32_t)((a) & 0x7F) << 8)
+#define FPGA_REG_WR(a, d)         (0x8000u | ((uint32_t)((a) & 0x7F) << 8) | ((uint32_t)(d) & 0xFF))
+#define FPGA_REG_GAP(op, tck)     ((op) | ((uint32_t)(tck) << 16))
+#define FPGA_REG_CTRL             0x100
+#define FPGA_REG_ALIVE            0x200
+
+/* true, wenn das laufende Design die Registerbank hat (Kennung "FAR"). */
+bool fpga_vjtag_link_is_regs(void);
+
+/* n Ops in einer TAP-Sitzung; res (darf NULL sein) bekommt je Op die 16 TDO-Bits.
+ * Liefert n, -1 ohne Registerbank. */
+int fpga_vjtag_reg_ops(const uint32_t *ops, int n, uint16_t *res);
+
 /* Art eines Link-Designs aus seiner Kennung: "full", "monitor", "control",
- * "service"; "" wenn id keine Link-Kennung ist. */
+ * "service", "lite"; "" wenn id keine Link-Kennung ist. */
 const char *fpga_vjtag_kind_str(uint32_t id);
 
 /* Art des laufenden Designs fuer die Oberflaeche ("link" in /api/config):

@@ -1302,6 +1302,32 @@ in 1.76–1.78 s; switching monitor ↔ control version 10 times without error.
 `/api/vjtag`: 2 × 100 000 scans without error, 18.6 µs per 32-bit scan
 = 215 kB/s of payload, one complete session (open, select VIR, 32 bits, close) 0.1 ms.
 
+### 15.1a FA control "lite": LISY in the ESP, register bank in the FPGA (experimental, 19.11.2026)
+
+With `fa_vjtag_link` the FPGA still carries the whole LISY slave `fa_control` (UART, parser,
+answer mux) plus a second UART pair and two FIFOs in the link. That does not fit into an
+EP4CE6 / 10CL006 next to a game. Designs of kind **R** (node ID **"FARx"**, GottFA80
+`lib_common/fa_jtag_regs.vhd` + `lib_common/fa_lite_sys80.vhd`, variant
+`smd_hw11_cyclone_iv_v4_fa_lite`) therefore keep only a register bank in the FPGA, and
+`main/lisy_emul.c` speaks LISY in software. `lisy.c`, `fa_connect.c` and the web page are
+unchanged: `j_bus_write()` hands the bytes to the emulator, its answers land in the same
+receive ring.
+
+- **VIR 1 (16 bits):** TDI [7:0] write data, [14:8] address, [15] write. TDO [7:0] read data of
+  the address from the *previous* scan, [8] control bit, [9] alive. A burst over n addresses
+  takes n + 1 scans (`fpga_vjtag_reg_ops()`, macros `FPGA_REG_RD/WR/GAP` in `fpga_jtag.h`).
+- **VIR 3:** control bit with 2 s dead-man timer, exactly as with the link (`board_ctrl_request()`).
+- **Register map:** see the header of `fa_lite_sys80.vhd`. Read: 0x01…0x3E = monitor bytes 1…62
+  (layout § 4.2), 0x40…0x45 version/game digits, 0x46 status. Write: raw RIOT bytes U6 PA/PB
+  (lamp latch sequence, 74139 codes and sound bits are computed in `lisy_emul.c`), a solenoid
+  pulse with ms counter in the FPGA, 28 BCD digits, the J2 bus of the 80B display (raw; the
+  Rockwell 10941 keeps its text) and 4 switch-simulation slots.
+- `link` in `/api/config` is `lite`; `/api/vjtag` dumps registers 0x00…0x47 and runs
+  0/1/2/8/110 through the emulator (`regs`, `regs_us`, `hw`, `ver`, `api`, `game`, `mon_len`, `mon_us`).
+
+Limits: at most 4 switches simulated at the same time; the emulator profile is GottFA80 only.
+Numbers and concept: `ESP32-C3_EVALUIERUNG.md` §15.11.
+
 ### 15.2 Writing the EPCS through a JTAG-SPI bridge (stage B, since v1.33)
 
 On the piggyback the EPCS sits on the FPGA's AS pins, which the ESP cannot reach. Every EPCS

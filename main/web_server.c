@@ -20,6 +20,7 @@
 #include "fpga_prog.h"
 #include "fpga_jtag.h"
 #include "lisy.h"
+#include "lisy_emul.h"
 #include "names.h"
 #include "repo.h"
 #include "rom_boot.h"
@@ -1230,16 +1231,50 @@ static int vjtag_link_test(httpd_req_t *req, uint32_t id, char *out, size_t max)
 {
     fpga_vjtag_hub_t hub;
     fpga_vjtag_probe(&hub);
-    int len = snprintf(out, max, ",\"id\":\"0x%08lX\",\"node\":\"fa_vjtag_link\"", (unsigned long)id);
+    int len;
 
-    static const uint8_t c_hw[]  = { LISY_CMD_G_HW };
-    static const uint8_t c_ver[] = { LISY_CMD_G_LISY_VER };
-    static const uint8_t c_api[] = { LISY_CMD_G_API_VER };
-    static const uint8_t c_mon[] = { LISY_CMD_MONITOR };
-    len += vjtag_lisy_field(&hub, "hw", c_hw, 1, out + len, max - len);
-    len += vjtag_lisy_field(&hub, "ver", c_ver, 1, out + len, max - len);
-    len += vjtag_lisy_field(&hub, "api", c_api, 1, out + len, max - len);
-    len += vjtag_lisy_field(&hub, "mon", c_mon, 1, out + len, max - len);
+    if (FPGA_VJTAG_IS_REGS(id)) {
+        /* FA-Control "lite": Register 0x00..0x47 roh, dann LISY ueber den Emulator */
+        len = snprintf(out, max, ",\"id\":\"0x%08lX\",\"node\":\"fa_jtag_regs\",\"regs\":\"",
+                       (unsigned long)id);
+        uint32_t ops[0x49];
+        uint16_t res[0x49];
+        for (int a = 0; a <= 0x48; a++) {
+            ops[a] = FPGA_REG_RD(a < 0x48 ? a : 0);
+        }
+        int64_t t0 = esp_timer_get_time();
+        int n = fpga_vjtag_reg_ops(ops, 0x49, res);
+        int64_t us = esp_timer_get_time() - t0;
+        for (int a = 0; n > 0 && a < 0x48 && len < (int)max - 8; a++) {
+            len += snprintf(out + len, max - len, "%02X", res[a + 1] & 0xFF);
+        }
+        char hw[24], ver[16], api[16], game[8];
+        lisy_get_string(LISY_CMD_G_HW, hw, sizeof(hw));
+        lisy_get_string(LISY_CMD_G_LISY_VER, ver, sizeof(ver));
+        lisy_get_string(LISY_CMD_G_API_VER, api, sizeof(api));
+        lisy_get_string(LISY_CMD_G_GAME_INFO, game, sizeof(game));
+        uint8_t mon[LISY_MONITOR_MAX];
+        t0 = esp_timer_get_time();
+        int ml = lisy_monitor_read(mon, sizeof(mon));
+        int64_t mon_us = esp_timer_get_time() - t0;
+        len += snprintf(out + len, max - len,
+                        "\",\"regs_us\":%lld,\"hw\":\"%s\",\"ver\":\"%s\",\"api\":\"%s\",\"game\":\"%s\","
+                        "\"mon_len\":%d,\"mon_us\":%lld",
+                        (long long)us, hw, ver, api, game, ml, (long long)mon_us);
+    } else {
+        len = snprintf(out, max, ",\"id\":\"0x%08lX\",\"node\":\"fa_vjtag_link\"", (unsigned long)id);
+        static const uint8_t c_hw[]  = { LISY_CMD_G_HW };
+        static const uint8_t c_ver[] = { LISY_CMD_G_LISY_VER };
+        static const uint8_t c_api[] = { LISY_CMD_G_API_VER };
+        static const uint8_t c_mon[] = { LISY_CMD_MONITOR };
+        len += vjtag_lisy_field(&hub, "hw", c_hw, 1, out + len, max - len);
+        len += vjtag_lisy_field(&hub, "ver", c_ver, 1, out + len, max - len);
+        len += vjtag_lisy_field(&hub, "api", c_api, 1, out + len, max - len);
+        len += vjtag_lisy_field(&hub, "mon", c_mon, 1, out + len, max - len);
+    }
+    if (len >= (int)max) {
+        len = (int)max - 1;
+    }
 
     int v1 = -1, v0 = -1, vd = -1;
     fpga_vjtag_ctrl(&hub, 1, &v1);
@@ -1328,6 +1363,7 @@ static esp_err_t fpgasram_post_handler(httpd_req_t *req)
     fpga_jtag_sram_result_t r;
     esp_err_t err = fpga_jtag_load_sram(http_src, s, cs_len, cs_bit, &r);
     fpga_vjtag_link_invalidate();   /* neues Design, neuer Hub */
+    lisy_emul_reset();
     /* Rest verwerfen, falls abgebrochen wurde -- sonst haengt der Client */
     while (s->left > 0 && http_recv_some(s, s->buf, s->left < sizeof(s->buf) ? s->left : sizeof(s->buf)) > 0) {
     }
@@ -1378,7 +1414,8 @@ static esp_err_t vjtag_get_handler(httpd_req_t *req)
     if (get_param_int(req, "info", 0) && len < (int)sizeof(buf)) {
         /* Nur Hub und Kennung -- keine LISY-Bytes, kein Steuerbit: stoert eine
          * laufende Verbindung nicht (Menue FPGA auf dem JTAG-Piggyback). */
-        const char *node = FPGA_VJTAG_IS_LINK(id)          ? "fa_vjtag_link" :
+        const char *node = FPGA_VJTAG_IS_REGS(id)          ? "fa_jtag_regs"  :
+                           FPGA_VJTAG_IS_LINK(id)          ? "fa_vjtag_link" :
                            (id >> 8) == FPGA_VJTAG_ID_PROBE ? "vjtag_probe"   :
                            perr == ESP_OK                   ? "unknown"       : "none";
         /* Art des FA-Designs: full / monitor / control / service */

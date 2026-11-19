@@ -12,6 +12,7 @@
 #include "app_config.h"   /* CFG_MAX_DISP_W */
 #include "board.h"
 #include "fpga_jtag.h"
+#include "lisy_emul.h"
 
 static const char *TAG = "lisy";
 
@@ -61,8 +62,19 @@ static size_t jrx_count(void)
     return (s_jrx_head + JRX_LEN - s_jrx_tail) % JRX_LEN;
 }
 
+/* FA-Control "lite" (Kennung "FAR"): kein LISY im FPGA, die Bytes gehen an den
+ * Software-Slave lisy_emul.c, dessen Antworten sofort im Ring liegen. */
+static void jrx_put_cb(const uint8_t *p, int n)
+{
+    jrx_put(p, n);
+}
+
 static void j_bus_write(const uint8_t *data, size_t len)
 {
+    if (fpga_vjtag_link_is_regs()) {
+        lisy_emul_feed(data, len, jrx_put_cb);
+        return;
+    }
     uint8_t tmp[64];
     int n = fpga_vjtag_link_io(data, len, tmp, sizeof(tmp), 0, 0);
     if (n > 0) {
@@ -84,6 +96,9 @@ static int j_bus_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
         if (got >= len || left_ms < 0) {
             break;
         }
+        if (fpga_vjtag_link_is_regs()) {
+            break;                              /* Emulator: es kommt nichts nach */
+        }
         uint8_t tmp[64];
         int n = fpga_vjtag_link_io(NULL, 0, tmp, sizeof(tmp), len - got, (int)left_ms);
         if (n < 0) {
@@ -101,6 +116,10 @@ static int j_bus_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
 static void j_bus_flush_in(void)
 {
     uint8_t tmp[64];
+    if (fpga_vjtag_link_is_regs()) {
+        s_jrx_head = s_jrx_tail = 0;
+        return;
+    }
     while (fpga_vjtag_link_io(NULL, 0, tmp, sizeof(tmp), 0, 0) == (int)sizeof(tmp)) {
     }
     s_jrx_head = s_jrx_tail = 0;
@@ -109,6 +128,9 @@ static void j_bus_flush_in(void)
 static size_t j_bus_avail(void)
 {
     uint8_t tmp[64];
+    if (fpga_vjtag_link_is_regs()) {
+        return jrx_count();
+    }
     int n = fpga_vjtag_link_io(NULL, 0, tmp, sizeof(tmp), 0, 0);
     if (n > 0) {
         jrx_put(tmp, n);
@@ -120,6 +142,10 @@ static size_t j_bus_avail(void)
  * fa_control weiter (87 us je Byte, hoechstens 256 im Puffer). */
 static void j_bus_wait_tx(uint32_t timeout_ms)
 {
+    if (fpga_vjtag_link_is_regs()) {
+        s_jtx_pending = 0;                      /* Emulator: schon ausgefuehrt */
+        return;
+    }
     size_t n = s_jtx_pending > 256 ? 256 : s_jtx_pending;
     uint32_t ms = (uint32_t)(n * 87 / 1000) + 2;
     vTaskDelay(pdMS_TO_TICKS(ms < timeout_ms ? ms : timeout_ms));

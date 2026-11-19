@@ -785,13 +785,15 @@ function buildGrids(){
 /* cfg.conn: 0=nicht verbunden 1=aktiv 2=DIP aus 3=Anforderung fehlt 4=sonstiges 5=keine Antwort
    6=Monitor 7=FPGA ohne Monitor 8=Monitor-Daten passen nicht 9=Design ohne FA-Link (Piggyback)
    cfg.link: "uart" (Sockel, v7) oder Art des FA-Links auf dem JTAG-Piggyback:
-   full / monitor / control / service / none */
+   full / monitor / control / service / lite / none */
 var BOARD_NAMES={socket:"SOCKET · UART",v7:"BOARD V7",jtag:"JTAG PIGGYBACK"};
 var LINK_NAMES={full:"FULL — MONITOR AND CONTROL",monitor:"MONITOR ONLY",
-  control:"CONTROL ONLY",service:"SERVICE — CONTROL, NO GAME",none:"NONE"};
-function canMon(){return !cfg||cfg.link==="uart"||cfg.link==="full"||cfg.link==="monitor"}
+  control:"CONTROL ONLY",service:"SERVICE — CONTROL, NO GAME",
+  lite:"LITE — MONITOR AND CONTROL",none:"NONE"};
+function canMon(){return !cfg||cfg.link==="uart"||cfg.link==="full"||cfg.link==="monitor"||
+  cfg.link==="lite"}
 function canCtl(){return !cfg||cfg.link==="uart"||cfg.link==="full"||cfg.link==="control"||
-  cfg.link==="service"}
+  cfg.link==="service"||cfg.link==="lite"}
 /* Warum ein Modus nicht geht -- Tooltip am Umschalter */
 function modeWhy(){
   return cfg&&cfg.link==="none"?"THE FPGA DESIGN HAS NO FA LINK — LOAD ONE UNDER CONFIG › FPGA":

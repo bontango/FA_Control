@@ -1,7 +1,7 @@
 # Seit v1.31 ein Image fuer alle Boards: fpga_jtag.c (v7 + JTAG-Piggyback) und
 # fpga_prog.c (nur v7) sind immer dabei, board.c entscheidet zur Laufzeit.
 set(srcs "repo.c" "board.c" "main.c" "app_config.c" "lisy.c" "fa_connect.c" "power_mgr.c" "wifi_mgr.c" "web_server.c" "fw_update.c" "names.c" "rom_boot.c"
-         "fpga_jtag.c" "fpga_prog.c")
+         "fpga_jtag.c" "fpga_prog.c" "lisy_emul.c")
 
 idf_component_register(
     SRCS ${srcs}
